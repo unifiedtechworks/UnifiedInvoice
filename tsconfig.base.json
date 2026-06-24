@@ -1,0 +1,27 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "isolatedModules": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "ignoreDeprecations": "6.0",
+    "baseUrl": ".",
+    "paths": {
+      "@invoice/domain": ["packages/domain/src/index.ts"],
+      "@invoice/invoice-engine": ["packages/invoice-engine/src/index.ts"],
+      "@invoice/validation": ["packages/validation/src/index.ts"],
+      "@invoice/api-client": ["packages/api-client/src/index.ts"],
+      "@invoice/ui": ["packages/ui/src/index.ts"]
+    }
+  }
+}
