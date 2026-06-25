@@ -4,6 +4,12 @@ export type DomainErrorCode =
   | 'invalid_timestamp'
   | 'invalid_currency_code'
   | 'invalid_invoice_status'
+  | 'invalid_money'
+  | 'invalid_quantity'
+  | 'invalid_currency_definition'
+  | 'currency_mismatch'
+  | 'numeric_overflow'
+  | 'invalid_rounding_mode'
   | 'invalid_state_transition'
   | 'invariant_violation';
 

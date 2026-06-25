@@ -11,10 +11,17 @@ export const financialCalculationPolicy =
 export type { Brand } from './brand';
 export {
   assertCurrencyCode,
+  assertCurrencyDefinition,
+  createCurrencyDefinition,
   DEFAULT_CURRENCY_CODE,
+  isCurrencyMinorUnitDigits,
   isCurrencyCode,
   parseCurrencyCode,
+  parseCurrencyDefinition,
+  USD_CURRENCY_DEFINITION,
   type CurrencyCode,
+  type CurrencyDefinition,
+  type CurrencyMinorUnitDigits,
 } from './currency';
 export {
   assertIsoDate,
@@ -72,6 +79,46 @@ export {
   type InvoiceStatus,
 } from './invoice-status';
 export {
+  addMoney,
+  assertMoney,
+  assertMonetaryInteger,
+  compareMoney,
+  createMoney,
+  equalMoney,
+  isMonetaryInteger,
+  MAX_MONETARY_MINOR_UNITS,
+  MIN_MONETARY_MINOR_UNITS,
+  multiplyMoneyByQuantity,
+  negateMoney,
+  parseMoneyFromDecimal,
+  parseMonetaryInteger,
+  parseSerializedMoney,
+  serializeMoney,
+  subtractMoney,
+  type MonetaryInteger,
+  type Money,
+  type SerializedMoney,
+} from './money';
+export {
+  assertQuantity,
+  assertQuantityInteger,
+  compareQuantity,
+  createQuantity,
+  equalQuantity,
+  isQuantityInteger,
+  MAX_QUANTITY_UNITS,
+  MIN_QUANTITY_UNITS,
+  parseQuantity,
+  parseQuantityInteger,
+  parseSerializedQuantity,
+  QUANTITY_SCALE,
+  QUANTITY_SCALE_FACTOR,
+  serializeQuantity,
+  type Quantity,
+  type QuantityInteger,
+  type SerializedQuantity,
+} from './quantity';
+export {
   DomainValidationError,
   err,
   makeDomainError,
@@ -80,3 +127,11 @@ export {
   type DomainErrorCode,
   type DomainResult,
 } from './result';
+export {
+  assertRoundingMode,
+  DEFAULT_ROUNDING_MODE,
+  isRoundingMode,
+  parseRoundingMode,
+  roundingModes,
+  type RoundingMode,
+} from './rounding';
