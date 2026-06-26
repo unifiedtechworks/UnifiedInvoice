@@ -18,6 +18,7 @@
     "baseUrl": ".",
     "paths": {
       "@invoice/domain": ["packages/domain/src/index.ts"],
+      "@invoice/invoice-domain": ["packages/invoice-domain/src/index.ts"],
       "@invoice/invoice-engine": ["packages/invoice-engine/src/index.ts"],
       "@invoice/validation": ["packages/validation/src/index.ts"],
       "@invoice/api-client": ["packages/api-client/src/index.ts"],

@@ -79,6 +79,12 @@ export {
   type InvoiceStatus,
 } from './invoice-status';
 export {
+  assertInvoiceNumber,
+  isInvoiceNumber,
+  parseInvoiceNumber,
+  type InvoiceNumber,
+} from './invoice-number';
+export {
   addMoney,
   assertMoney,
   assertMonetaryInteger,

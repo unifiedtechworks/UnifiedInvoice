@@ -185,6 +185,25 @@ importers:
         specifier: 6.0.3
         version: 6.0.3
 
+  packages/invoice-domain:
+    dependencies:
+      '@invoice/domain':
+        specifier: workspace:*
+        version: link:../domain
+      '@invoice/invoice-engine':
+        specifier: workspace:*
+        version: link:../invoice-engine
+    devDependencies:
+      tsup:
+        specifier: 8.5.1
+        version: 8.5.1(postcss@8.5.15)(typescript@6.0.3)(yaml@2.9.0)
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+      vitest:
+        specifier: 4.1.9
+        version: 4.1.9(@types/node@26.0.0)(vite@8.1.0(@types/node@26.0.0)(esbuild@0.27.7)(terser@5.48.0)(yaml@2.9.0))
+
   packages/invoice-engine:
     dependencies:
       '@invoice/domain':

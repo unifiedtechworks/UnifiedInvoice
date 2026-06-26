@@ -18,7 +18,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "vitest run",
-    "build": "pnpm --filter @invoice/domain --filter @invoice/invoice-engine --filter @invoice/validation --filter @invoice/api-client --filter @invoice/ui --filter @invoice/web build",
+    "build": "pnpm --filter @invoice/domain --filter @invoice/invoice-engine --filter @invoice/invoice-domain --filter @invoice/validation --filter @invoice/api-client --filter @invoice/ui --filter @invoice/web build",
     "web:dev": "pnpm --filter @invoice/web dev",
     "web:build": "pnpm --filter @invoice/web build",
     "mobile:start": "pnpm --filter @invoice/mobile start",
