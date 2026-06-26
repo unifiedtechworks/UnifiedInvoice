@@ -21,6 +21,32 @@ export { calculateDraftInvoice, finalizeInvoice, toInvoiceCalculationInput } fro
 export { voidInvoice } from './lifecycle';
 export { createPartySnapshot, createPostalAddressSnapshot } from './party-snapshot';
 export {
+  INVOICE_SCHEMA_VERSION,
+  parseSerializedDraftInvoice,
+  parseSerializedFinalizedInvoice,
+  parseSerializedInvoice,
+  parseSerializedVoidedInvoice,
+  serializeDraftInvoice,
+  serializeFinalizedInvoice,
+  serializeInvoice,
+  serializeVoidedInvoice,
+  type SerializedCurrencyDefinition,
+  type SerializedDraftInvoice,
+  type SerializedDraftInvoiceLine,
+  type SerializedFinalizedInvoice,
+  type SerializedFinalizedInvoiceLine,
+  type SerializedInvoice,
+  type SerializedInvoiceCalculationMetadata,
+  type SerializedInvoiceCalculationTotals,
+  type SerializedInvoiceDiscount,
+  type SerializedInvoiceSchemaVersion,
+  type SerializedLineDiscount,
+  type SerializedLineTax,
+  type SerializedPartySnapshot,
+  type SerializedPostalAddressSnapshot,
+  type SerializedVoidedInvoice,
+} from './serialization';
+export {
   parseAddressLineText,
   parseAddressLocalityText,
   parseAddressRegionText,
