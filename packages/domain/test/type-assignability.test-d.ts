@@ -14,6 +14,8 @@ import {
   type PaymentId,
   type Quantity,
   type QuantityInteger,
+  type Rate,
+  type RateUnits,
   type SerializedMoney,
   type UserId,
   type UtcTimestampString,
@@ -37,6 +39,8 @@ declare const quantityInteger: QuantityInteger;
 declare const money: Money;
 declare const quantity: Quantity;
 declare const serializedMoney: SerializedMoney;
+declare const rateUnits: RateUnits;
+declare const rate: Rate;
 
 const validCustomerId: CustomerId = secondCustomerId;
 const validIdentifierString: string = customerId;
@@ -46,6 +50,7 @@ const validCurrencyString: string = currencyCode;
 const validInvoiceStatus: InvoiceStatus = 'draft';
 const validMonetaryBigInt: bigint = monetaryInteger;
 const validQuantityBigInt: bigint = quantityInteger;
+const validRateBigInt: bigint = rateUnits;
 
 // @ts-expect-error CustomerId must not be assignable to InvoiceId
 const invalidInvoiceId: InvoiceId = customerId;
@@ -98,6 +103,15 @@ const invalidSerializedMoney: SerializedMoney = money;
 // @ts-expect-error Money is not the same as SerializedMoney
 const invalidMoneyFromSerialized: Money = serializedMoney;
 
+// @ts-expect-error RateUnits and QuantityInteger must not be interchangeable
+const invalidRateUnitsFromQuantity: RateUnits = quantityInteger;
+
+// @ts-expect-error RateUnits and MonetaryInteger must not be interchangeable
+const invalidRateUnitsFromMoney: RateUnits = monetaryInteger;
+
+// @ts-expect-error Rate cannot be assigned from a plain object
+const invalidRate: Rate = { units: rateUnits };
+
 void validCustomerId;
 void validIdentifierString;
 void validDateString;
@@ -106,9 +120,11 @@ void validCurrencyString;
 void validInvoiceStatus;
 void validMonetaryBigInt;
 void validQuantityBigInt;
+void validRateBigInt;
 void businessId;
 void paymentId;
 void quantity;
+void rate;
 void documentId;
 void invalidInvoiceId;
 void invalidCustomerId;
@@ -127,3 +143,6 @@ void invalidMoney;
 void invalidQuantity;
 void invalidSerializedMoney;
 void invalidMoneyFromSerialized;
+void invalidRateUnitsFromQuantity;
+void invalidRateUnitsFromMoney;
+void invalidRate;

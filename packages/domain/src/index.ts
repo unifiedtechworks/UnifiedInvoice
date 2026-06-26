@@ -128,6 +128,24 @@ export {
   type DomainResult,
 } from './result';
 export {
+  applyRateToMoney,
+  assertRate,
+  assertRateUnits,
+  assertSerializedRate,
+  createRate,
+  isRateUnits,
+  MAX_RATE_UNITS,
+  MIN_RATE_UNITS,
+  parseRateFromDecimalPercent,
+  parseRateUnits,
+  parseSerializedRate,
+  RATE_SCALE,
+  serializeRate,
+  type Rate,
+  type RateUnits,
+  type SerializedRate,
+} from './rate';
+export {
   assertRoundingMode,
   DEFAULT_ROUNDING_MODE,
   isRoundingMode,

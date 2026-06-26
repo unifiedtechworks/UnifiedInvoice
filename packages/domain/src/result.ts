@@ -10,6 +10,11 @@ export type DomainErrorCode =
   | 'currency_mismatch'
   | 'numeric_overflow'
   | 'invalid_rounding_mode'
+  | 'invalid_rate'
+  | 'invalid_invoice_calculation'
+  | 'duplicate_identifier'
+  | 'discount_exceeds_amount'
+  | 'overpayment'
   | 'invalid_state_transition'
   | 'invariant_violation';
 
