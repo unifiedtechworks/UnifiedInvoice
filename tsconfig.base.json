@@ -21,6 +21,7 @@
       "@invoice/invoice-domain": ["packages/invoice-domain/src/index.ts"],
       "@invoice/invoice-engine": ["packages/invoice-engine/src/index.ts"],
       "@invoice/invoice-repository": ["packages/invoice-repository/src/index.ts"],
+      "@invoice/invoice-repository-memory": ["packages/invoice-repository-memory/src/index.ts"],
       "@invoice/validation": ["packages/validation/src/index.ts"],
       "@invoice/api-client": ["packages/api-client/src/index.ts"],
       "@invoice/ui": ["packages/ui/src/index.ts"]
