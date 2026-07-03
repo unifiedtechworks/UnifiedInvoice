@@ -14,10 +14,11 @@ This repository is a TypeScript monorepo for an invoice-management platform.
 - `packages/invoice-repository` contains storage-neutral invoice repository ports, repository-local results/errors, opaque record version tokens, and adapter-facing record/list/query contracts. It depends on `packages/domain` and `packages/invoice-domain`; it does not implement storage drivers.
 - `packages/invoice-repository-memory` contains the in-memory invoice repository adapter for tests, development, and local non-durable use. It depends on `packages/domain`, `packages/invoice-domain`, and `packages/invoice-repository`; stores serialized `StoredInvoiceRecord` values in process memory only; enforces repository contracts, optimistic concurrency, invoice-number uniqueness, lifecycle rules, list/query behavior, and serialization/parse boundaries; and does not add durable storage, browser storage, AWS, API, or UI concerns.
 - `packages/invoice-repository-dynamodb` is the owner-scoped durable DynamoDB adapter. It is
-  separate from the storage-neutral repository contracts and the in-memory adapter; Task 011B
-  implements core draft/finalized/voided single-record persistence with conditional writes and
-  invoice-number transactions, and Task 011C implements validated owner-partition list/query,
-  search, deterministic sorting, and offset pagination without a table-wide scan.
+  separate from the storage-neutral repository contracts and the in-memory adapter. Task 011 is
+  complete: the adapter implements draft/finalized/voided persistence, consistent reads,
+  conditional writes, invoice-number reservation transactions, and validated owner-partition
+  list/query behavior without a table-wide scan. API composition, infrastructure resources,
+  authentication, and deployment remain separate later-task concerns.
 - `packages/validation` is reserved for shared validation primitives.
 - `packages/api-client` is reserved for a future client abstraction and contains no backend implementation.
 - `packages/ui` contains React Native primitive-based UI that can be consumed by Android and web.

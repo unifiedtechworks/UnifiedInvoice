@@ -1,14 +1,15 @@
 # DynamoDB invoice repository adapter
 
-`@invoice/invoice-repository-dynamodb` is the future durable DynamoDB adapter for the storage-
-neutral `@invoice/invoice-repository` port.
+`@invoice/invoice-repository-dynamodb` is the durable DynamoDB adapter for the storage-neutral
+`@invoice/invoice-repository` port.
 
-Task 011B implements owner-scoped core persistence for:
+The completed adapter provides owner-scoped persistence for:
 
 ```text
 createDraft
 updateDraft
 getById
+list
 discardDraft
 saveFinalized
 saveVoided
@@ -22,7 +23,7 @@ Invoice items use owner-partitioned `OWNER#<ownerId>` / `INVOICE#<invoiceId>` ke
 transactionally claims `INVOICE_NUMBER#<invoiceNumber>`, and voiding preserves that reservation.
 Canonical serialized records are parsed and checked against physical item metadata on reads.
 
-Task 011C implements `list` by querying every `INVOICE#` item in the authenticated owner partition,
+`list` queries every `INVOICE#` item in the authenticated owner partition,
 following DynamoDB's internal pages, validating each physical/canonical record, and then applying
 kind filtering, simple invoice-number/customer search, deterministic sorting, and `offset:<n>`
 pagination. Reservation items and other owners are never queried. The early-production strategy is
@@ -41,4 +42,6 @@ pnpm --filter @invoice/invoice-repository-dynamodb lint
 pnpm --filter @invoice/invoice-repository-dynamodb build
 ```
 
-API composition remains separate in 011D or the existing API integration task split.
+Task 011D completed final package, behavior, storage-boundary, test, and documentation review. API
+composition remains deferred to the existing API integration task split; no deployment or invoice-
+number generation is part of this package.

@@ -2,8 +2,9 @@
 
 ## Status
 
-Accepted. Task 011A created the scaffold, Task 011B implemented core persistence, and Task 011C
-implements list/query behavior.
+Accepted and implemented through Task 011D. Task 011A created the package scaffold, Task 011B
+implemented core single-record persistence, Task 011C implemented list/query behavior, and Task
+011D completed final review, documentation, and verification.
 
 ## Context
 
@@ -99,12 +100,12 @@ future work when measured volume justifies it. OpenSearch and full-text search a
   transactions, number reservations, AWS SDK dependencies, and fake-client tests. (Implemented.)
 - 011C: owner-partition Query, validation, filter/search/sort behavior, internal DynamoDB paging,
   and offset cursors. (Implemented.)
-- 011D: compose the adapter into `apps/api` or confirm that integration remains in the planned HTTP
-  API task.
+- 011D: final package-boundary, runtime/storage behavior, test, and documentation review.
+  (Implemented.) API composition remains deferred to the planned HTTP API task.
 
 ## Non-goals
 
-Task 011C includes no AWS resource/GSI creation, invoice-number generation, API routes,
+Task 011 includes no AWS resource/GSI creation, invoice-number generation, API routes,
 authentication implementation, UI, migrations, local/browser storage, deployment, OpenSearch, or
 changes to repository contracts or the in-memory adapter.
 
