@@ -2,8 +2,8 @@
 
 ## Status
 
-Accepted and implemented as the local Task 012A infrastructure scaffold. No deployment was
-performed.
+Accepted and implemented as the local Task 012A infrastructure scaffold, deployed to dev in Task
+012B, and extended with the Task 013 dev DynamoDB table/IAM wiring.
 
 ## Context
 
@@ -19,26 +19,30 @@ Use AWS CDK in TypeScript as the active infrastructure direction. The active pac
 `@invoice/infra-cdk` under `infra/cdk`, and the Task 010 SAM scaffold is removed as an active
 deployment path.
 
-The initial CDK stack intentionally remains health-only:
+The active CDK stack intentionally keeps the API surface health-only:
 
 - packages the existing `apps/api/dist` Lambda artifact;
 - uses the existing `index.healthHandler` export;
 - creates a Node.js 22 Lambda with 128 MB memory and a five-second timeout;
 - creates an API Gateway HTTP API route for `GET /health`;
 - creates a CloudWatch log group with 14-day retention;
+- creates the environment-scoped DynamoDB invoice table for future repository composition;
+- passes `APP_ENV` and `INVOICES_TABLE_NAME` to the Lambda;
+- grants only the table-scoped DynamoDB actions required by the repository adapter;
 - tags resources with `Project=UnifiedInvoice`, `ManagedBy=CDK`, and the configured
   `Environment`;
 - defaults the environment name to `dev` and allows a CDK context override; and
 - remains account/region agnostic for local synthesis.
 
-Synthesis is local and builds the API package first. Bootstrap, deployment, and production
-configuration are deferred.
+Synthesis is local and builds the API package first. Deployment is explicit and production
+configuration is deferred.
 
 ## Deferred
 
-Task 012A does not add DynamoDB tables, Cognito, invoice API routes, custom domains, S3 deploy
-buckets, budget resources, VPC/NAT, production stack configuration, real AWS account IDs, secrets,
-or deployment automation. Invoice-number generation and API composition remain later concerns.
+Task 013 adds the dev DynamoDB table and Lambda IAM wiring only. Cognito, invoice API routes,
+custom domains, S3 deploy buckets, budget resources, VPC/NAT, production stack configuration, real
+AWS account IDs, secrets, deployment automation, invoice-number generation, and API composition
+remain later concerns.
 
 ## Consequences
 

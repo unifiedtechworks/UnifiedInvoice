@@ -3,6 +3,8 @@ import { resolve } from 'node:path';
 import { CfnOutput, Duration, RemovalPolicy, Stack, Tags, type StackProps } from 'aws-cdk-lib';
 import { HttpApi, HttpMethod } from 'aws-cdk-lib/aws-apigatewayv2';
 import { HttpLambdaIntegration } from 'aws-cdk-lib/aws-apigatewayv2-integrations';
+import { AttributeType, BillingMode, Table } from 'aws-cdk-lib/aws-dynamodb';
+import { Effect, PolicyStatement } from 'aws-cdk-lib/aws-iam';
 import { Architecture, Code, Function as LambdaFunction, Runtime } from 'aws-cdk-lib/aws-lambda';
 import { LogGroup, RetentionDays } from 'aws-cdk-lib/aws-logs';
 import type { Construct } from 'constructs';
@@ -25,6 +27,14 @@ export class UnifiedInvoiceApiStack extends Stack {
     Tags.of(this).add('ManagedBy', 'CDK');
     Tags.of(this).add('Environment', props.environmentName);
 
+    const invoicesTable = new Table(this, 'InvoicesTable', {
+      tableName: `${resourcePrefix}-invoices`,
+      partitionKey: { name: 'PK', type: AttributeType.STRING },
+      sortKey: { name: 'SK', type: AttributeType.STRING },
+      billingMode: BillingMode.PAY_PER_REQUEST,
+      removalPolicy: RemovalPolicy.DESTROY,
+    });
+
     const healthLogGroup = new LogGroup(this, 'HealthLogGroup', {
       logGroupName: `/aws/lambda/${resourcePrefix}-health`,
       retention: RetentionDays.TWO_WEEKS,
@@ -41,7 +51,26 @@ export class UnifiedInvoiceApiStack extends Stack {
       memorySize: 128,
       timeout: Duration.seconds(5),
       logGroup: healthLogGroup,
+      environment: {
+        APP_ENV: props.environmentName,
+        INVOICES_TABLE_NAME: invoicesTable.tableName,
+      },
     });
+
+    healthFunction.addToRolePolicy(
+      new PolicyStatement({
+        effect: Effect.ALLOW,
+        actions: [
+          'dynamodb:GetItem',
+          'dynamodb:PutItem',
+          'dynamodb:UpdateItem',
+          'dynamodb:DeleteItem',
+          'dynamodb:Query',
+          'dynamodb:TransactWriteItems',
+        ],
+        resources: [invoicesTable.tableArn],
+      }),
+    );
 
     const healthApi = new HttpApi(this, 'HealthApi', {
       apiName: `${resourcePrefix}-http-api`,
@@ -61,6 +90,10 @@ export class UnifiedInvoiceApiStack extends Stack {
     new CfnOutput(this, 'HealthFunctionName', {
       description: 'Health Lambda function name',
       value: healthFunction.functionName,
+    });
+    new CfnOutput(this, 'InvoicesTableName', {
+      description: 'Invoice repository DynamoDB table name',
+      value: invoicesTable.tableName,
     });
   }
 }

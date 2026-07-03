@@ -23,10 +23,11 @@ This repository is a TypeScript monorepo for an invoice-management platform.
 - `packages/api-client` is reserved for a future client abstraction and contains no backend implementation.
 - `packages/ui` contains React Native primitive-based UI that can be consumed by Android and web.
 - `infra/cdk` contains the active AWS CDK infrastructure scaffold for the unauthenticated
-  `GET /health` HTTP API and Lambda only. It packages the existing `apps/api` build output,
-  defaults to the `dev` environment through CDK context, and creates no DynamoDB, Cognito, S3,
-  VPC, NAT, custom domain, budget, invoice route, secret, or account-specific deployment
-  configuration. Task 012A superseded and removed the Task 010 SAM scaffold; deployment remains
-  deferred.
+  `GET /health` HTTP API, Lambda, and environment-scoped DynamoDB invoice table. It packages the
+  existing `apps/api` build output, defaults to the `dev` environment through CDK context, passes
+  `APP_ENV` and `INVOICES_TABLE_NAME` to the Lambda, and grants only the table actions needed by
+  the DynamoDB repository adapter. It creates no Cognito, S3 app bucket, VPC, NAT, custom domain,
+  budget, invoice route, secret, or account-specific deployment configuration. Task 012A superseded
+  and removed the Task 010 SAM scaffold; deployment remains explicit and manual.
 
 Business logic must remain independent of React Native and AWS. Financial calculations must not use floating-point currency values. Invoice document lifecycle is separate from settlement, delivery, persistence, APIs, UI, PDF, email, and AWS concerns.

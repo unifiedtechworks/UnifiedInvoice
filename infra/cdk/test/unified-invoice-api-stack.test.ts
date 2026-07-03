@@ -29,6 +29,14 @@ describe('UnifiedInvoiceApiStack', () => {
       Runtime: 'nodejs22.x',
       MemorySize: 128,
       Timeout: 5,
+      Environment: {
+        Variables: {
+          APP_ENV: 'test',
+          INVOICES_TABLE_NAME: {
+            Ref: Match.stringLikeRegexp('InvoicesTable'),
+          },
+        },
+      },
       Tags: Match.arrayWith([
         { Key: 'Environment', Value: 'test' },
         { Key: 'ManagedBy', Value: 'CDK' },
@@ -46,12 +54,64 @@ describe('UnifiedInvoiceApiStack', () => {
       LogGroupName: '/aws/lambda/unified-invoice-test-health',
       RetentionInDays: 14,
     });
+    template.hasOutput('HealthApiUrl', {});
+    template.hasOutput('HealthFunctionName', {});
   });
 
-  it('does not introduce deferred state, identity, or network resources', () => {
+  it('creates the low-cost invoice repository table', () => {
     const { template } = createTemplate();
 
-    template.resourceCountIs('AWS::DynamoDB::Table', 0);
+    template.hasResourceProperties('AWS::DynamoDB::Table', {
+      TableName: 'unified-invoice-test-invoices',
+      BillingMode: 'PAY_PER_REQUEST',
+      KeySchema: [
+        { AttributeName: 'PK', KeyType: 'HASH' },
+        { AttributeName: 'SK', KeyType: 'RANGE' },
+      ],
+      AttributeDefinitions: [
+        { AttributeName: 'PK', AttributeType: 'S' },
+        { AttributeName: 'SK', AttributeType: 'S' },
+      ],
+    });
+    template.hasOutput('InvoicesTableName', {
+      Value: {
+        Ref: Match.stringLikeRegexp('InvoicesTable'),
+      },
+    });
+  });
+
+  it('grants only the DynamoDB table actions needed by the repository adapter', () => {
+    const { template } = createTemplate();
+
+    template.hasResourceProperties('AWS::IAM::Policy', {
+      PolicyDocument: {
+        Statement: Match.arrayWith([
+          Match.objectLike({
+            Action: Match.arrayWith([
+              'dynamodb:GetItem',
+              'dynamodb:PutItem',
+              'dynamodb:UpdateItem',
+              'dynamodb:DeleteItem',
+              'dynamodb:Query',
+              'dynamodb:TransactWriteItems',
+            ]),
+            Effect: 'Allow',
+            Resource: {
+              'Fn::GetAtt': [Match.stringLikeRegexp('InvoicesTable'), 'Arn'],
+            },
+          }),
+        ]),
+      },
+    });
+
+    const policies = template.findResources('AWS::IAM::Policy');
+    expect(JSON.stringify(policies)).not.toContain('dynamodb:Scan');
+    expect(JSON.stringify(policies)).not.toContain('dynamodb:*');
+  });
+
+  it('does not introduce deferred identity or network resources', () => {
+    const { template } = createTemplate();
+
     template.resourceCountIs('AWS::Cognito::UserPool', 0);
     template.resourceCountIs('AWS::EC2::VPC', 0);
     template.resourceCountIs('AWS::EC2::NatGateway', 0);

@@ -56,3 +56,10 @@ Task 012B deployed the health-only CDK stack to the dev environment in `us-west-
   budget, secret, or production resource was deployed.
 - The live endpoint URL is intentionally not committed; use the `HealthApiUrl` stack output when
   verifying the deployed health endpoint.
+
+## Follow-on Task 013 boundary
+
+Task 013 is the follow-on infrastructure task that adds the dev DynamoDB invoice table, Lambda table
+environment variables, and least-privilege table IAM wiring. It does not add invoice API handlers,
+invoice routes, Cognito, VPC/NAT, custom domains, app S3 buckets, budgets, secrets, production
+configuration, or deployment automation. `/health` remains the only API route.
