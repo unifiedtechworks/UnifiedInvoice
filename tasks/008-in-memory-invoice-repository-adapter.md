@@ -4,7 +4,7 @@
 
 Draft behavior implemented in Task 008C. Finalized and voided behavior,
 invoice-number indexing, and finalized/voided seed support implemented in Task
-008D. List/query/search/sort/pagination behavior remains deferred to Task 008E.
+008D. List/query/search/sort/pagination behavior implemented in Task 008E.
 
 ## Scope Implemented in 008B
 
@@ -98,6 +98,49 @@ intentionally threw until Task 008C added concrete draft adapter behavior.
   Lambda/API Gateway, HTTP/API client methods, UI, auth/users/accounts/tenants,
   invoice-number generation/sequencing, migrations, payments, delivery events,
   and Task 008F remain out of scope.
+
+## Scope Implemented in 008E
+
+- Replaced the deferred `list` method with in-memory list/query behavior.
+- Added list support for all stored lifecycle kinds: draft, finalized, and voided.
+- Added optional lifecycle-kind filtering.
+- Added simple adapter-local, case-insensitive search across invoice number and
+  customer display name only.
+- Added sorting by `updatedAt`, `createdAt`, `issueDate`, and `invoiceNumber`,
+  with default `updatedAt desc` ordering.
+- Kept records missing optional sort fields after records with present sort fields
+  for both ascending and descending directions.
+- Added deterministic tie-breaking by invoice ID ascending and then version
+  ascending.
+- Added offset cursor pagination using opaque `offset:<non-negative integer>`
+  cursors.
+- Added page-size defaults and validation: default 50, maximum 100, positive safe
+  integers only.
+- Added cursor validation with `repository_invariant_violation` errors using
+  `path: 'cursor'` for invalid cursor formats or unsafe offsets.
+- Added page-size validation with `repository_invariant_violation` errors using
+  `path: 'pageSize'` for invalid page sizes.
+- Reused existing serialized payload parsing and metadata validation before list
+  output so corrupt included records are not leaked as list metadata.
+- Added frozen list results, frozen list arrays, and frozen list items so callers
+  cannot mutate internal repository state through list output.
+- Preserved Task 008C/008D create/update/finalize/void/get/discard behavior,
+  invoice-number uniqueness, seed support, version-token behavior, and
+  serialization/parse boundaries.
+- Added runtime tests for default listing, filtering, search, sorting,
+  pagination, validation, and immutability.
+- Added compile-time tests for valid list queries, invalid kind/sort fields/sort
+  directions, and the list result type.
+- Added no local storage, AWS, API, UI, auth, invoice-number generation,
+  migrations, payments, delivery, PDF/email, reporting, or full-text search code.
+
+## Behavior Still Deferred After 008E
+
+- Task 008F documentation/final verification/cleanup remains deferred.
+- Local storage, IndexedDB, filesystem storage, DynamoDB, AWS SDK usage,
+  Lambda/API Gateway, HTTP/API client methods, UI, auth/users/accounts/tenants,
+  invoice-number generation/sequencing, migrations, payments, delivery events,
+  PDF/email, reporting, and full-text search remain out of scope.
 
 ## Verification Results for 008D
 
