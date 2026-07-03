@@ -42,3 +42,4 @@ Thumbs.db
 
 # AWS/CDK future outputs
 cdk.out/
+.aws-sam/

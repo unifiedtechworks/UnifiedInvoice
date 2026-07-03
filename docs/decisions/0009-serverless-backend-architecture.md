@@ -208,8 +208,8 @@ addresses, emails, authorization headers, tokens, or secrets.
 
 ## Tasks 010-014
 
-- **010 — SAM/backend scaffold:** add `infra/`, `apps/api`, workspace wiring, SAM defaults, table,
-  API/Lambda skeleton, logs, tags, outputs, budgets, and docs; add no unauthenticated invoice routes
+- **010 — SAM/backend scaffold:** add `infra/`, `apps/api`, workspace wiring, SAM defaults,
+  API/Lambda skeleton, logs, tags, outputs, and docs; add no unauthenticated invoice routes
   and deploy nothing automatically.
 - **011 — DynamoDB adapter:** implement and contract-test owner-scoped repository behavior,
   canonical validation, concurrency, GSI listing, lifecycle transactions, and number reservations.
