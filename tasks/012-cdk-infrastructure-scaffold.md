@@ -39,3 +39,20 @@ a later task explicitly runs deployment.
 Run focused CDK checks, API checks, repository-wide checks, generated-output cleanup, lockfile
 inspection, and final Git inspection listed in the Task 012A completion request. Generated
 `cdk.out`, `dist`, and package-local `node_modules` output should not remain in the final status.
+
+## Task 012B dev deployment
+
+Task 012B deployed the health-only CDK stack to the dev environment in `us-west-2`.
+
+- AWS account recorded for review as `9064****2082`.
+- CDK bootstrap already existed in `us-west-2` with bootstrap version 28; bootstrap was not rerun.
+- Deployed stack name: `unified-invoice-dev-api`.
+- Deployed resources were limited to the health Lambda, HTTP API, `GET /health` route/integration,
+  Lambda invoke permission for API Gateway, Lambda execution role for basic logging, explicit log
+  group with 14-day retention, CDK metadata, and stack outputs.
+- Stack outputs captured `HealthApiUrl` and `HealthFunctionName`.
+- The deployed `HealthApiUrl` endpoint returned `{"ok":true,"service":"unified-invoice-api"}`.
+- No DynamoDB table, Cognito User Pool, invoice API route, VPC/NAT, custom domain, app S3 bucket,
+  budget, secret, or production resource was deployed.
+- The live endpoint URL is intentionally not committed; use the `HealthApiUrl` stack output when
+  verifying the deployed health endpoint.

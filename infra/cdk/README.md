@@ -28,3 +28,45 @@ The `synth` script builds `apps/api` first because the Lambda asset is `apps/api
 handler remains `index.healthHandler`. The default environment is `dev`; override it locally with
 CDK context, for example `pnpm cdk:synth -- --context environment=test`. Synthesis is local and
 does not deploy resources. Remove generated `cdk.out` and API `dist` output after verification.
+
+## Dev deployment
+
+Task 012B deployed the health-only dev stack in `us-west-2` for masked account `9064****2082`.
+The CDK bootstrap stack already existed and was not rerun.
+
+Use temporary region settings instead of changing global AWS configuration:
+
+```powershell
+$env:AWS_REGION = "us-west-2"
+$env:AWS_DEFAULT_REGION = "us-west-2"
+```
+
+Useful commands:
+
+```powershell
+pnpm --filter @invoice/infra-cdk synth
+pnpm --filter @invoice/infra-cdk exec cdk diff -c environment=dev
+pnpm --filter @invoice/infra-cdk exec cdk deploy -c environment=dev
+```
+
+The deployed stack is `unified-invoice-dev-api`. Verify the deployed endpoint with the
+`HealthApiUrl` stack output:
+
+```powershell
+Invoke-RestMethod -Uri "<HealthApiUrl>"
+```
+
+Expected response:
+
+```json
+{
+  "ok": true,
+  "service": "unified-invoice-api"
+}
+```
+
+Destroy is intentionally a manual operation and was not run during Task 012B:
+
+```powershell
+pnpm --filter @invoice/infra-cdk exec cdk destroy -c environment=dev
+```

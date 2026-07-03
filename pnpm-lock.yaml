@@ -177,6 +177,10 @@ importers:
       constructs:
         specifier: ^10.6.0
         version: 10.6.0
+    devDependencies:
+      aws-cdk:
+        specifier: ^2.1129.0
+        version: 2.1129.0
 
   packages/api-client:
     devDependencies:
@@ -2203,6 +2207,11 @@ packages:
   available-typed-arrays@1.0.7:
     resolution: {integrity: sha512-wvUjBtSGN7+7SjNpq/9M2Tg350UZD3q62IFZLbRAR1bSMlCo1ZaeW+BJ+D090e4hIIZLBcTDWe4Mh4jvUDajzQ==}
     engines: {node: '>= 0.4'}
+
+  aws-cdk@2.1129.0:
+    resolution: {integrity: sha512-M0EWbjeKW+baUsirjtKuWh7w/9dPxF8taEi2hqo9ecCjGeQxV1dzyosJf+caR3Jh7dFyyT3J8zEtRb/cU971Rw==}
+    engines: {node: '>= 18.0.0'}
+    hasBin: true
 
   babel-jest@29.7.0:
     resolution: {integrity: sha512-BrvGY3xZSwEcCzKvKsCi2GgHqDqsYkOP4/by5xCgIwGXQxIEh+8ew3gmrE1y7XRR6LHZIj6yLYnUi/mm2KXKBg==}
@@ -7241,6 +7250,8 @@ snapshots:
   available-typed-arrays@1.0.7:
     dependencies:
       possible-typed-array-names: 1.1.0
+
+  aws-cdk@2.1129.0: {}
 
   babel-jest@29.7.0(@babel/core@7.29.7):
     dependencies:
