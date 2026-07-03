@@ -1,37 +1,61 @@
-# ADR 0008: In-Memory Invoice Repository Adapter Scaffold
+# ADR 0008: In-Memory Invoice Repository Adapter
 
 ## Status
 
-Accepted for scaffold only in Task 008B.
+Accepted. Completed through Task 008F.
 
 ## Context
 
 Task 007 introduced the storage-neutral invoice repository boundary contracts in
-`@invoice/invoice-repository`. Task 008B prepares a separate in-memory adapter
-package for future repository behavior without changing the existing contracts.
+`@invoice/invoice-repository`. Task 008 adds a concrete in-memory adapter without
+changing those contracts or creating reverse dependencies from domain or port
+packages back to an adapter.
+
+The adapter is intended for tests, development, and local non-durable use. It is
+not a persistence strategy for production data.
 
 ## Decision
 
-- Scaffold `@invoice/invoice-repository-memory` in `packages/invoice-repository-memory`.
-- Keep the adapter package separate from `@invoice/invoice-repository`.
-- Establish the intended dependency direction from the adapter package to:
+- Provide `@invoice/invoice-repository-memory` in
+  `packages/invoice-repository-memory` as a separate adapter package.
+- Keep repository contracts in `@invoice/invoice-repository`; the in-memory
+  package implements those contracts but does not define new repository ports.
+- Preserve the dependency direction from the adapter package to:
   - `@invoice/domain`
   - `@invoice/invoice-domain`
   - `@invoice/invoice-repository`
-- Expose a placeholder `createInMemoryInvoiceRepository` factory and options type.
+- Expose `createInMemoryInvoiceRepository` and
+  `InMemoryInvoiceRepositoryOptions`.
+- Store only serialized `StoredInvoiceRecord` values as canonical adapter state.
+- Serialize successful writes before storage and parse stored serialized payloads
+  before returning runtime invoice aggregates.
+- Enforce repository lifecycle rules for draft creation/update/discard,
+  finalized saves, voided saves, reads, and list queries.
+- Enforce optimistic concurrency through opaque record versions.
+- Enforce invoice-number uniqueness for finalized and voided invoices and keep
+  invoice numbers reserved after voiding.
+- Support `initialRecords` seeding with validation, duplicate ID rejection,
+  duplicate invoice-number rejection, and deterministic future version generation.
+- Support adapter-local list/query behavior: lifecycle filtering, simple
+  case-insensitive search over invoice number and customer display name,
+  supported sorting, deterministic tie-breaking, offset cursors, and page-size
+  validation.
 
 ## Non-Goals
 
-- No in-memory adapter behavior is implemented in this scaffold task.
-- The package does not yet implement `InvoiceRepository` behavior.
-- Concrete create, update, save, get, list, query, discard, seeding, indexing,
-  cursor, metadata, or storage behavior is deferred to Task 008C onward.
-- No AWS, API, UI, local-storage, IndexedDB, filesystem, or external persistence
-  work is included.
+- No durable storage is included.
+- No AWS, API, UI, local-storage, IndexedDB, filesystem, DynamoDB, SDK, or
+  external persistence work is included.
+- The adapter is not responsible for invoice-number generation or sequencing;
+  callers provide already-assigned invoice numbers when saving finalized
+  invoices.
+- The adapter does not recalculate, finalize, void, settle, deliver, render, or
+  email invoices.
 
 ## Consequences
 
-- Future tasks can implement `InvoiceRepository` in the adapter package without
-  adding reverse dependencies from domain packages or repository contracts.
-- Task 008C and later tasks must replace the throwing placeholder with real
-  adapter behavior and dedicated verification.
+- Tests and local development can use a concrete repository implementation while
+  durable persistence adapters remain separate future work.
+- Domain packages and repository contracts remain independent of adapter code.
+- The adapter provides useful contract enforcement but process memory remains
+  non-durable; data is lost when the repository instance/process is discarded.

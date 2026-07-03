@@ -2,9 +2,17 @@
 
 ## Status
 
-Draft behavior implemented in Task 008C. Finalized and voided behavior,
-invoice-number indexing, and finalized/voided seed support implemented in Task
-008D. List/query/search/sort/pagination behavior implemented in Task 008E.
+Complete through Task 008F.
+
+Task 008 delivered `@invoice/invoice-repository-memory` as an in-memory-only
+invoice repository adapter. 008B scaffolded the package, 008C implemented draft
+behavior, 008D implemented finalized/voided behavior and invoice-number
+uniqueness, 008E implemented list/query/search/sort/pagination behavior, and
+008F performed final cleanup, documentation review, and verification.
+
+No AWS, API, UI, local-storage, IndexedDB, filesystem, DynamoDB, durable
+persistence, or invoice-number generation/sequencing work was added. Future
+persistence adapters remain separate work.
 
 ## Scope Implemented in 008B
 
@@ -142,6 +150,47 @@ intentionally threw until Task 008C added concrete draft adapter behavior.
   invoice-number generation/sequencing, migrations, payments, delivery events,
   PDF/email, reporting, and full-text search remain out of scope.
 
+## Scope Completed in 008F
+
+- Performed final review of `@invoice/invoice-repository-memory` source exports,
+  package scripts, dependencies, tests, repository contracts, domain exports, root
+  build/path wiring, lockfile package entries, architecture documentation, ADR
+  0008, and this task record.
+- Confirmed public package shape exports `createInMemoryInvoiceRepository` and
+  `InMemoryInvoiceRepositoryOptions` only.
+- Confirmed dependency direction remains adapter-to-domain/ports:
+  `@invoice/invoice-repository-memory -> @invoice/domain`,
+  `@invoice/invoice-repository-memory -> @invoice/invoice-domain`, and
+  `@invoice/invoice-repository-memory -> @invoice/invoice-repository`.
+- Confirmed no reverse dependency from source packages back to
+  `@invoice/invoice-repository-memory`.
+- Confirmed the adapter stores serialized `StoredInvoiceRecord` values in
+  private process memory and does not store runtime invoice objects as canonical
+  state.
+- Confirmed successful writes serialize before storage and reads/lists validate
+  stored payloads through invoice-domain parsers before returning data.
+- Confirmed implemented behavior covers `createDraft`, `updateDraft`,
+  `saveFinalized`, `saveVoided`, `getById`, `list`, `discardDraft`,
+  `initialRecords`, optimistic concurrency, idempotency, invoice-number
+  uniqueness, invoice-number reservation after void, lifecycle conflicts,
+  deterministic version tokens, query validation, frozen outputs, and no internal
+  mutable state leakage.
+- Updated `docs/architecture.md` and ADR 0008 to reflect the completed adapter
+  rather than the earlier scaffold state.
+- Added no local storage, AWS, API, UI, auth, invoice-number generation,
+  migrations, payments, delivery, PDF/email, reporting, full-text search, new
+  package, or dependency code.
+- Added no generated files and no package-local `node_modules` to source control.
+
+## Behavior Deferred After 008F
+
+- Durable persistence remains future adapter work, separate from
+  `@invoice/invoice-repository-memory`.
+- Local storage, IndexedDB, filesystem storage, DynamoDB, AWS SDK usage,
+  Lambda/API Gateway, HTTP/API client methods, UI, auth/users/accounts/tenants,
+  invoice-number generation/sequencing, migrations, payments, delivery events,
+  PDF/email, reporting, and full-text search remain out of scope.
+
 ## Verification Results for 008D
 
 Focused checks run during implementation:
@@ -170,9 +219,9 @@ behavior coverage.
 ## Planned Next Phases
 
 - 008C: draft behavior. (Implemented)
-- 008D: finalized and voided behavior.
-- 008E: list and query behavior.
-- 008F: documentation, verification, and final cleanup.
+- 008D: finalized and voided behavior. (Implemented)
+- 008E: list and query behavior. (Implemented)
+- 008F: documentation, verification, and final cleanup. (Implemented)
 
 ## Verification Commands
 
