@@ -2,7 +2,9 @@
 
 ## Status
 
-Implemented locally; ready for review after verification.
+Implemented in Task 010, then superseded by Task 012A. The reusable `apps/api` health handler and
+build remain, but the active SAM infrastructure files were removed when the project switched to
+CDK.
 
 ## Objective
 
@@ -21,6 +23,13 @@ task does not add invoice behavior, persistence, DynamoDB, Cognito, authorizatio
 - Added root API scripts and root build participation.
 - Updated architecture documentation for the health-only scaffold.
 - Clarified ADR 0009's Task 010 summary so the DynamoDB table remains deferred to Task 011.
+
+## Superseded infrastructure direction
+
+Task 012A replaced the active SAM scaffold with `infra/cdk`, the repository's AWS CDK
+infrastructure package. The CDK scaffold now owns the health-only API Gateway HTTP API and Lambda
+definition. No deployment was performed during the switch, and DynamoDB, Cognito, invoice routes,
+custom domains, budgets, VPC/NAT, real account IDs, and secrets remain deferred.
 
 ## Intentionally deferred
 

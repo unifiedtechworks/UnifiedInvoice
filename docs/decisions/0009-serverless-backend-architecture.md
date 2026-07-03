@@ -2,7 +2,9 @@
 
 ## Status
 
-Accepted as the Task 009 implementation plan. No backend code or AWS resources are implemented.
+Accepted as the backend implementation plan and amended by ADR 0012. A health-only API scaffold,
+the DynamoDB repository adapter, and the active CDK infrastructure scaffold now exist locally. No
+AWS resources have been deployed. ADR 0012 supersedes the original SAM scaffold direction with CDK.
 
 ## Context
 
@@ -33,7 +35,7 @@ DynamoDB
 
 Create:
 
-- `infra/` for AWS SAM templates, environment parameters, outputs, budgets, and deployment docs.
+- `infra/` for AWS CDK stacks, environment context, outputs, guardrails, and deployment docs.
 - `apps/api` for Lambda entry points, HTTP mapping, authentication context, domain orchestration,
   and adapter composition.
 - `packages/invoice-repository-dynamodb` for the AWS-specific implementation of the existing
@@ -59,14 +61,14 @@ third-party services.
 
 ## Deployment approach
 
-Use AWS SAM. It is AWS-native, produces repeatable CloudFormation, supports a straightforward CLI
-workflow, and adds less framework machinery than a broader platform. Explicitly test pnpm workspace
-Lambda bundling in CI.
+Use AWS CDK. Task 010 originally used AWS SAM for the first health-only scaffold, but ADR 0012
+supersedes that choice before deployment because the infrastructure will grow beyond a single route
+and must remain maintainable alongside the TypeScript monorepo. CDK keeps API Gateway, Lambda,
+DynamoDB, Cognito, IAM, S3, environments, and guardrails in typed code while still synthesizing to
+repeatable CloudFormation. Bootstrap and deployment are deferred.
 
-AWS CDK is capable and TypeScript-friendly, but its construct dependencies and bootstrap lifecycle
-are unnecessary for the first small stack. SST and Serverless Framework add a third-party release
-surface; Amplify Gen 2 couples backend ownership more closely to the frontend; manual console setup
-is not reproducible.
+SST and Serverless Framework add a third-party release surface; Amplify Gen 2 couples backend
+ownership more closely to the frontend; manual console setup is not reproducible.
 
 Use separate allow-listed `dev` and `prod` stacks/resources named like
 `unified-invoice-<environment>-<resource>`. Deploy dev first and avoid persistent preview stacks.
@@ -188,7 +190,7 @@ membership model.
 - Set CloudWatch log retention to 14 days. Avoid invoice/PII/token logging, paid custom metrics,
   high-cardinality dimensions, production debug logs, and X-Ray until justified.
 - Use no VPC/NAT or other forbidden always-on resources and no persistent per-branch stacks.
-- Tag supported resources with `Project=UnifiedInvoice`, `Environment=dev|prod`, `ManagedBy=SAM`,
+- Tag supported resources with `Project=UnifiedInvoice`, `Environment=dev|prod`, `ManagedBy=CDK`,
   and an account-appropriate owner/cost-center tag.
 - Never share a DynamoDB table or Cognito User Pool between environments.
 - If S3 is added, keep it private, block public access, encrypt it, apply lifecycle rules, and issue
@@ -208,11 +210,14 @@ addresses, emails, authorization headers, tokens, or secrets.
 
 ## Tasks 010-014
 
-- **010 — SAM/backend scaffold:** add `infra/`, `apps/api`, workspace wiring, SAM defaults,
-  API/Lambda skeleton, logs, tags, outputs, and docs; add no unauthenticated invoice routes
-  and deploy nothing automatically.
+- **010 — SAM/backend scaffold:** added `apps/api` and the original health-only SAM scaffold.
+  Task 012A superseded and removed the active SAM files; the reusable API health handler/build
+  remains.
 - **011 — DynamoDB adapter:** implement and contract-test owner-scoped repository behavior,
   canonical validation, concurrency, GSI listing, lifecycle transactions, and number reservations.
+- **012A — CDK infrastructure scaffold:** replace SAM with the active CDK scaffold for the
+  health-only API/Lambda, with no deployment and no DynamoDB, Cognito, invoice routes, custom
+  domains, budgets, VPC/NAT, real account IDs, or secrets.
 - **012 — Cognito/authorization:** add User Pool/client/JWT authorizer, disabled registration,
   bootstrap docs, owner derivation, CORS, least privilege, and auth/isolation tests.
 - **013 — HTTP handlers:** implement the seven routes, request validation, error/cursor mapping,

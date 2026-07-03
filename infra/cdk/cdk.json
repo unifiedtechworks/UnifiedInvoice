@@ -1,0 +1,6 @@
+{
+  "app": "node dist/bin/unified-invoice.js",
+  "context": {
+    "environment": "dev"
+  }
+}

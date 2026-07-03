@@ -1,0 +1,17 @@
+{
+  "name": "@invoice/infra-cdk",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run --root ../.. infra/cdk/test",
+    "build": "tsc --noEmit",
+    "synth": "pnpm --dir ../../apps/api build && tsc --outDir dist --module NodeNext --moduleResolution NodeNext --target ES2022 --rootDir . && node dist/bin/unified-invoice.js"
+  },
+  "dependencies": {
+    "aws-cdk-lib": "^2.260.0",
+    "constructs": "^10.6.0"
+  }
+}
