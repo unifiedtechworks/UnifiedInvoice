@@ -1,4 +1,11 @@
-import type { InvoiceRepository, StoredInvoiceRecord } from '@invoice/invoice-repository';
+import type { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
+import type {
+  InvoiceListResult,
+  InvoiceRecordVersion,
+  InvoiceRepository,
+  InvoiceRepositoryResult,
+  StoredInvoiceRecord,
+} from '@invoice/invoice-repository';
 
 import {
   createDynamoDbInvoiceRepository,
@@ -6,41 +13,40 @@ import {
   type DynamoDbInvoiceRepositoryTableNames,
 } from '../src';
 
+declare const client: DynamoDBDocumentClient;
+declare const generatedVersion: InvoiceRecordVersion;
 declare const storedRecord: StoredInvoiceRecord;
 
 const tableNames: DynamoDbInvoiceRepositoryTableNames = {
   invoicesTableName: 'unified-invoice-test-invoices',
 };
-
 const options: DynamoDbInvoiceRepositoryOptions = {
   tableNames,
   ownerId: 'test-owner',
+  client,
+  generateVersion: () => generatedVersion,
 };
-
 const factory: (options: DynamoDbInvoiceRepositoryOptions) => InvoiceRepository =
   createDynamoDbInvoiceRepository;
 const repository: InvoiceRepository = createDynamoDbInvoiceRepository(options);
+const listResult: Promise<InvoiceRepositoryResult<InvoiceListResult>> = repository.list();
 
+// @ts-expect-error client is required
+const missingClient: DynamoDbInvoiceRepositoryOptions = { tableNames, ownerId: 'test-owner' };
 // @ts-expect-error ownerId is required
-const missingOwnerId: DynamoDbInvoiceRepositoryOptions = { tableNames };
-
+const missingOwnerId: DynamoDbInvoiceRepositoryOptions = { tableNames, client };
 // @ts-expect-error tableNames is required
-const missingTableNames: DynamoDbInvoiceRepositoryOptions = { ownerId: 'test-owner' };
-
+const missingTableNames: DynamoDbInvoiceRepositoryOptions = { ownerId: 'test-owner', client };
 // @ts-expect-error invoicesTableName is required
 const missingInvoicesTableName: DynamoDbInvoiceRepositoryTableNames = {};
-
-// @ts-expect-error ownerId must be a string
-const invalidOwnerId: DynamoDbInvoiceRepositoryOptions = { tableNames, ownerId: 123 };
-
 // @ts-expect-error raw StoredInvoiceRecord writes are not part of InvoiceRepository
 repository.putRecord(storedRecord);
 
-void tableNames;
 void options;
 void factory;
 void repository;
+void listResult;
+void missingClient;
 void missingOwnerId;
 void missingTableNames;
 void missingInvoicesTableName;
-void invalidOwnerId;

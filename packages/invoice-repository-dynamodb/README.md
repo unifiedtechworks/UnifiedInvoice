@@ -3,15 +3,27 @@
 `@invoice/invoice-repository-dynamodb` is the future durable DynamoDB adapter for the storage-
 neutral `@invoice/invoice-repository` port.
 
-Task 011A provides only the public package and factory shape. The factory intentionally throws:
+Task 011B implements owner-scoped core persistence for:
 
 ```text
-createDynamoDbInvoiceRepository is scaffolded but not implemented. Task 011B will add DynamoDB persistence behavior.
+createDraft
+updateDraft
+getById
+discardDraft
+saveFinalized
+saveVoided
 ```
 
-The options identify the invoice table and an already-authenticated owner scope. There is no AWS
-SDK client, DynamoDB call, partial repository behavior, infrastructure resource, or raw stored-
-record write API yet.
+The factory requires an injected `DynamoDBDocumentClient`, invoice table name, and already-
+authenticated owner ID. Tests inject a local command-aware fake; they make no AWS calls. Runtime
+versions default to UUID-based opaque tokens, while tests may inject a deterministic generator.
+
+Invoice items use owner-partitioned `OWNER#<ownerId>` / `INVOICE#<invoiceId>` keys. Finalization
+transactionally claims `INVOICE_NUMBER#<invoiceNumber>`, and voiding preserves that reservation.
+Canonical serialized records are parsed and checked against physical item metadata on reads.
+
+`list` intentionally returns `repository_unavailable` until Task 011C. The package creates no AWS
+resources and does not implement API routes, authentication, or invoice-number generation.
 
 ## Local commands
 
@@ -22,5 +34,5 @@ pnpm --filter @invoice/invoice-repository-dynamodb lint
 pnpm --filter @invoice/invoice-repository-dynamodb build
 ```
 
-Task 011B will add core lifecycle persistence. List/query behavior may follow in 011C, and API
-composition remains separate in 011D or the existing API integration task split.
+Task 011C will add list/query behavior. API composition remains separate in 011D or the existing
+API integration task split.
