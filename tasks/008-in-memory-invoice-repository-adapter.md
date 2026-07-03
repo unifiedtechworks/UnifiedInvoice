@@ -2,8 +2,9 @@
 
 ## Status
 
-Draft behavior implemented in Task 008C; finalized, voided, and list/query
-behavior remain deferred.
+Draft behavior implemented in Task 008C. Finalized and voided behavior,
+invoice-number indexing, and finalized/voided seed support implemented in Task
+008D. List/query/search/sort/pagination behavior remains deferred to Task 008E.
 
 ## Scope Implemented in 008B
 
@@ -63,6 +64,53 @@ intentionally threw until Task 008C added concrete draft adapter behavior.
   indexing/uniqueness, finalized/voided idempotency, and finalized/voided seed
   support are not implemented in Task 008C.
 - List/query/search/sort/pagination behavior is not implemented in Task 008C.
+
+## Scope Implemented in 008D
+
+- Implemented finalized lifecycle persistence through `saveFinalized`.
+- Implemented voided lifecycle persistence through `saveVoided`.
+- Added in-memory invoice-number indexing with uniqueness enforcement for
+  finalized and voided invoices.
+- Preserved invoice-number reservation after voiding.
+- Added finalized and voided stored-record derivation from canonical Task 006
+  serializers.
+- Added finalized and voided metadata validation against parsed serialized
+  payloads.
+- Extended `getById` to parse and return draft, finalized, and voided runtime
+  invoices with versions.
+- Added idempotent finalized and voided saves using canonical serialized payload
+  equality; idempotent no-op saves return the existing version without
+  incrementing.
+- Added finalized and voided initial-record seed support, including duplicate ID
+  rejection, duplicate invoice-number rejection, and future version generation
+  that avoids seeded `vN` collisions.
+- Preserved Task 008C draft behavior for `createDraft`, `updateDraft`,
+  `discardDraft`, draft seed support, version tokens, and metadata validation.
+- Kept `list` deferred with `repository_unavailable` and the Task 008E message.
+- Added no AWS, API, UI, local-storage, IndexedDB, filesystem, DynamoDB, or
+  invoice-number generation code.
+
+## Behavior Still Deferred After 008D
+
+- `list` returns `repository_unavailable` until Task 008E.
+- Query/search/sort/pagination behavior is not implemented in Task 008D.
+- Local storage, IndexedDB, filesystem storage, DynamoDB, AWS SDK usage,
+  Lambda/API Gateway, HTTP/API client methods, UI, auth/users/accounts/tenants,
+  invoice-number generation/sequencing, migrations, payments, delivery events,
+  and Task 008F remain out of scope.
+
+## Verification Results for 008D
+
+Focused checks run during implementation:
+
+```powershell
+pnpm --filter @invoice/invoice-repository-memory test
+pnpm --filter @invoice/invoice-repository-memory typecheck
+pnpm --filter @invoice/invoice-repository-memory lint
+```
+
+Results: all passed during implementation. The package build and repository-wide
+verification commands are listed below and should be run before final handoff.
 
 ## Verification Results for 008C
 

@@ -13,10 +13,21 @@ import {
 import {
   addDraftInvoiceLine,
   createDraftInvoice,
+  finalizeInvoice,
   parseInvoiceLineDescription,
+  parsePartyDisplayName,
+  parseVoidReason,
   serializeDraftInvoice,
+  serializeFinalizedInvoice,
+  serializeVoidedInvoice,
+  setDraftInvoiceDates,
+  setDraftInvoiceParties,
+  voidInvoice,
   type DraftInvoice,
   type DraftInvoiceLine,
+  type FinalizedInvoice,
+  type PartySnapshot,
+  type VoidedInvoice,
 } from '@invoice/invoice-domain';
 import { assertInvoiceRecordVersion, type StoredInvoiceRecord } from '@invoice/invoice-repository';
 
@@ -31,6 +42,11 @@ const invoiceId = (value = 'invoice-1') => assertInvoiceId(value);
 const lineId = (value = 'line-1') => assertInvoiceLineItemId(value);
 const timestamp = (value: string) => assertUtcTimestamp(value);
 const version = (value: string) => assertInvoiceRecordVersion(value);
+const party = (displayName: string): PartySnapshot => {
+  const parsed = parsePartyDisplayName(displayName);
+  if (!parsed.ok) throw new Error(`Expected party name: ${displayName}`);
+  return Object.freeze({ displayName: parsed.value });
+};
 
 const draftLine = (id = 'line-1', position = 0): DraftInvoiceLine =>
   Object.freeze({
@@ -53,6 +69,82 @@ const draftInvoice = (id = 'invoice-1', updatedAt = '2026-01-01T00:00:00.000Z') 
 
 const draftWithLine = (id = 'invoice-1', updatedAt = '2026-01-01T00:01:00.000Z') =>
   must(addDraftInvoiceLine(draftInvoice(id), draftLine(), timestamp(updatedAt)));
+
+const finalizableDraft = (id = 'invoice-1') => {
+  const parties = must(
+    setDraftInvoiceParties(
+      draftInvoice(id),
+      { business: party('Seller'), customer: party('Buyer') },
+      timestamp('2026-01-01T00:01:00.000Z'),
+    ),
+  );
+  const dates = must(
+    setDraftInvoiceDates(
+      parties,
+      { issueDate: '2026-01-02' as never, dueDate: '2026-02-01' as never },
+      timestamp('2026-01-01T00:02:00.000Z'),
+    ),
+  );
+  return must(
+    addDraftInvoiceLine(dates, draftLine(`line-${id}`), timestamp('2026-01-01T00:03:00.000Z')),
+  );
+};
+
+const finalizedInvoice = (id = 'invoice-1', number = 'INV-1001'): FinalizedInvoice =>
+  must(
+    finalizeInvoice(finalizableDraft(id), {
+      invoiceNumber: assertInvoiceNumber(number),
+      finalizedAt: timestamp('2026-01-01T00:04:00.000Z'),
+    }),
+  );
+
+const voidedInvoice = (invoice = finalizedInvoice()): VoidedInvoice =>
+  must(
+    voidInvoice(invoice, {
+      voidedAt: timestamp('2026-01-02T00:00:00.000Z'),
+      reason: must(parseVoidReason('Issued in error')),
+    }),
+  );
+
+const storedFinalizedRecord = (
+  invoice: FinalizedInvoice,
+  recordVersion = 'v7',
+): StoredInvoiceRecord => {
+  const serialized = serializeFinalizedInvoice(invoice);
+  return Object.freeze({
+    id: invoice.id,
+    kind: 'finalized',
+    schemaVersion: serialized.schemaVersion,
+    invoice: serialized,
+    version: version(recordVersion),
+    createdAt: invoice.createdAt,
+    updatedAt: invoice.updatedAt,
+    invoiceNumber: invoice.invoiceNumber,
+    customerDisplayName: invoice.customer.displayName,
+    issueDate: invoice.issueDate,
+    dueDate: invoice.dueDate,
+    finalizedAt: invoice.finalizedAt,
+  });
+};
+
+const storedVoidedRecord = (invoice: VoidedInvoice, recordVersion = 'v7'): StoredInvoiceRecord => {
+  const serialized = serializeVoidedInvoice(invoice);
+  return Object.freeze({
+    id: invoice.finalized.id,
+    kind: 'voided',
+    schemaVersion: serialized.schemaVersion,
+    invoice: serialized,
+    version: version(recordVersion),
+    createdAt: invoice.finalized.createdAt,
+    updatedAt: invoice.voidedAt,
+    invoiceNumber: invoice.finalized.invoiceNumber,
+    customerDisplayName: invoice.finalized.customer.displayName,
+    issueDate: invoice.finalized.issueDate,
+    dueDate: invoice.finalized.dueDate,
+    finalizedAt: invoice.finalized.finalizedAt,
+    voidedAt: invoice.voidedAt,
+  });
+};
 
 const storedDraftRecord = (draft: DraftInvoice, recordVersion = 'v7'): StoredInvoiceRecord => {
   const serialized = serializeDraftInvoice(draft);
@@ -87,23 +179,12 @@ describe('createInMemoryInvoiceRepository draft behavior', () => {
     });
   });
 
-  it('returns not-implemented repository errors for deferred methods', async () => {
+  it('returns not-implemented repository errors for deferred list', async () => {
     const repository = createInMemoryInvoiceRepository();
-    const finalized = { kind: 'finalized' } as never;
-    const voided = { kind: 'voided' } as never;
-
-    const finalizedResult = await repository.saveFinalized(finalized, {
-      expectedVersion: version('v1'),
-    });
-    const voidedResult = await repository.saveVoided(voided, { expectedVersion: version('v1') });
     const listResult = await repository.list();
 
-    expect(finalizedResult).toMatchObject({
-      ok: false,
-      error: { code: 'repository_unavailable' },
-    });
-    expect(voidedResult).toMatchObject({ ok: false, error: { code: 'repository_unavailable' } });
     expect(listResult).toMatchObject({ ok: false, error: { code: 'repository_unavailable' } });
+    if (!listResult.ok) expect(listResult.error.message).toContain('Task 008E');
   });
 
   it('creates a draft, returns v1, and getById returns the created draft with the same version', async () => {
@@ -225,26 +306,190 @@ describe('createInMemoryInvoiceRepository draft behavior', () => {
     expect(created).toMatchObject({ ok: true, value: { version: 'v8' } });
   });
 
-  it('rejects duplicate seed IDs and finalized or voided seeds', () => {
+  it('rejects duplicate seed IDs', () => {
     const seededDraft = draftWithLine('seeded');
     const draftRecord = storedDraftRecord(seededDraft);
-    const finalizedRecord: StoredInvoiceRecord = Object.freeze({
-      id: seededDraft.id,
-      kind: 'finalized',
-      schemaVersion: draftRecord.schemaVersion,
-      invoice: draftRecord.invoice,
-      version: version('v1'),
-      createdAt: seededDraft.createdAt,
-      updatedAt: seededDraft.updatedAt,
-      invoiceNumber: assertInvoiceNumber('INV-SEED'),
-      finalizedAt: timestamp('2026-01-01T00:02:00.000Z'),
-    });
 
     expect(() =>
       createInMemoryInvoiceRepository({ initialRecords: [draftRecord, draftRecord] }),
     ).toThrow('Duplicate initial invoice record ID');
-    expect(() => createInMemoryInvoiceRepository({ initialRecords: [finalizedRecord] })).toThrow(
-      'deferred to Task 008D',
-    );
+  });
+});
+
+describe('createInMemoryInvoiceRepository finalized and voided behavior', () => {
+  it('replaces a draft with a finalized invoice and getById returns the finalized record', async () => {
+    const repository = createInMemoryInvoiceRepository();
+    const draft = finalizableDraft();
+    const created = await repository.createDraft(draft);
+    if (!created.ok) throw new Error('expected draft create');
+    const finalized = finalizedInvoice();
+
+    const saved = await repository.saveFinalized(finalized, {
+      expectedVersion: created.value.version,
+    });
+
+    expect(saved).toMatchObject({ ok: true, value: { version: 'v2', invoice: finalized } });
+    const found = await repository.getById(finalized.id);
+    expect(found).toEqual(saved);
+  });
+
+  it('enforces saveFinalized conflicts, idempotency, and invoice-number uniqueness', async () => {
+    const repository = createInMemoryInvoiceRepository();
+    const firstDraft = finalizableDraft('invoice-1');
+    const secondDraft = finalizableDraft('invoice-2');
+    const firstCreated = await repository.createDraft(firstDraft);
+    const secondCreated = await repository.createDraft(secondDraft);
+    if (!firstCreated.ok || !secondCreated.ok) throw new Error('expected creates');
+    const finalized = finalizedInvoice('invoice-1', 'INV-1001');
+    const saved = await repository.saveFinalized(finalized, {
+      expectedVersion: firstCreated.value.version,
+    });
+    if (!saved.ok) throw new Error('expected finalized save');
+
+    await expect(
+      repository.updateDraft(firstDraft, { expectedVersion: saved.value.version }),
+    ).resolves.toMatchObject({ ok: false, error: { code: 'invoice_conflict' } });
+    await expect(
+      repository.discardDraft(firstDraft.id, { expectedVersion: saved.value.version }),
+    ).resolves.toMatchObject({ ok: false, error: { code: 'invoice_conflict' } });
+    await expect(
+      repository.saveFinalized(finalized, { expectedVersion: version('v999') }),
+    ).resolves.toMatchObject({ ok: false, error: { code: 'invoice_conflict' } });
+    await expect(
+      repository.saveFinalized(finalizedInvoice('missing', 'INV-MISSING'), {
+        expectedVersion: version('v1'),
+      }),
+    ).resolves.toMatchObject({ ok: false, error: { code: 'invoice_not_found' } });
+    await expect(
+      repository.saveFinalized({ ...firstDraft, kind: 'draft' } as never, {
+        expectedVersion: saved.value.version,
+      }),
+    ).resolves.toMatchObject({ ok: false, error: { code: 'invalid_invoice_record' } });
+
+    const duplicateNumber = finalizedInvoice('invoice-2', 'INV-1001');
+    await expect(
+      repository.saveFinalized(duplicateNumber, { expectedVersion: secondCreated.value.version }),
+    ).resolves.toMatchObject({ ok: false, error: { code: 'invoice_number_conflict' } });
+
+    const same = await repository.saveFinalized(finalized, {
+      expectedVersion: saved.value.version,
+    });
+    expect(same).toEqual(saved);
+    const different = {
+      ...finalized,
+      invoiceNumber: assertInvoiceNumber('INV-DIFFERENT'),
+    } as FinalizedInvoice;
+    await expect(
+      repository.saveFinalized(different, { expectedVersion: saved.value.version }),
+    ).resolves.toMatchObject({ ok: false, error: { code: 'invoice_conflict' } });
+  });
+
+  it('replaces a finalized invoice with a voided invoice and preserves totals', async () => {
+    const finalized = finalizedInvoice();
+    const repository = createInMemoryInvoiceRepository({
+      initialRecords: [storedFinalizedRecord(finalized, 'v7')],
+    });
+    const voided = voidedInvoice(finalized);
+
+    const saved = await repository.saveVoided(voided, { expectedVersion: version('v7') });
+
+    expect(saved).toMatchObject({ ok: true, value: { version: 'v8', invoice: voided } });
+    if (!saved.ok) throw new Error('expected voided save');
+    expect((saved.value.invoice as VoidedInvoice).finalized.totals).toEqual(finalized.totals);
+    const found = await repository.getById(finalized.id);
+    expect(found).toEqual(saved);
+  });
+
+  it('enforces saveVoided conflicts, idempotency, and reserved invoice numbers', async () => {
+    const finalized = finalizedInvoice('invoice-1', 'INV-VOID');
+    const otherDraft = finalizableDraft('invoice-2');
+    const repository = createInMemoryInvoiceRepository({
+      initialRecords: [storedFinalizedRecord(finalized, 'v7')],
+    });
+    const voided = voidedInvoice(finalized);
+    const saved = await repository.saveVoided(voided, { expectedVersion: version('v7') });
+    if (!saved.ok) throw new Error('expected voided save');
+
+    await expect(
+      repository.saveVoided(voided, { expectedVersion: version('v7') }),
+    ).resolves.toMatchObject({ ok: false, error: { code: 'invoice_conflict' } });
+    await expect(
+      repository.saveVoided(voidedInvoice(finalizedInvoice('missing', 'INV-MISS')), {
+        expectedVersion: version('v1'),
+      }),
+    ).resolves.toMatchObject({ ok: false, error: { code: 'invoice_not_found' } });
+    await expect(
+      repository.saveVoided(finalized as never, { expectedVersion: saved.value.version }),
+    ).resolves.toMatchObject({ ok: false, error: { code: 'invalid_invoice_record' } });
+    const same = await repository.saveVoided(voided, { expectedVersion: saved.value.version });
+    expect(same).toEqual(saved);
+    const different = {
+      ...voided,
+      voidedAt: timestamp('2026-01-03T00:00:00.000Z'),
+    } as VoidedInvoice;
+    await expect(
+      repository.saveVoided(different, { expectedVersion: saved.value.version }),
+    ).resolves.toMatchObject({ ok: false, error: { code: 'invoice_conflict' } });
+    await expect(
+      repository.discardDraft(finalized.id, { expectedVersion: saved.value.version }),
+    ).resolves.toMatchObject({ ok: false, error: { code: 'invoice_conflict' } });
+
+    const created = await repository.createDraft(otherDraft);
+    if (!created.ok) throw new Error('expected second draft');
+    await expect(
+      repository.saveFinalized(finalizedInvoice('invoice-2', 'INV-VOID'), {
+        expectedVersion: created.value.version,
+      }),
+    ).resolves.toMatchObject({ ok: false, error: { code: 'invoice_number_conflict' } });
+  });
+
+  it('rejects voiding drafts and unsafe void payloads', async () => {
+    const repository = createInMemoryInvoiceRepository();
+    const draft = finalizableDraft();
+    const created = await repository.createDraft(draft);
+    if (!created.ok) throw new Error('expected create');
+
+    await expect(
+      repository.saveVoided(voidedInvoice(finalizedInvoice()), {
+        expectedVersion: created.value.version,
+      }),
+    ).resolves.toMatchObject({ ok: false, error: { code: 'invoice_conflict' } });
+  });
+
+  it('supports finalized and voided seeds, rejects duplicate seed numbers, and advances versions', async () => {
+    const finalized = finalizedInvoice('seed-finalized', 'INV-SEED-1');
+    const voided = voidedInvoice(finalizedInvoice('seed-voided', 'INV-SEED-2'));
+    const repository = createInMemoryInvoiceRepository({
+      initialRecords: [storedFinalizedRecord(finalized, 'v7'), storedVoidedRecord(voided, 'v11')],
+    });
+
+    await expect(repository.getById(finalized.id)).resolves.toMatchObject({
+      ok: true,
+      value: { version: 'v7', invoice: finalized },
+    });
+    await expect(repository.getById(voided.finalized.id)).resolves.toMatchObject({
+      ok: true,
+      value: { version: 'v11', invoice: voided },
+    });
+    await expect(repository.createDraft(draftInvoice('new-after-seed'))).resolves.toMatchObject({
+      ok: true,
+      value: { version: 'v12' },
+    });
+    expect(() =>
+      createInMemoryInvoiceRepository({
+        initialRecords: [
+          storedFinalizedRecord(finalized),
+          storedVoidedRecord(voidedInvoice(finalized)),
+        ],
+      }),
+    ).toThrow('Duplicate initial invoice record ID');
+    expect(() =>
+      createInMemoryInvoiceRepository({
+        initialRecords: [
+          storedFinalizedRecord(finalized),
+          storedFinalizedRecord(finalizedInvoice('other-seed', 'INV-SEED-1')),
+        ],
+      }),
+    ).toThrow('Duplicate initial invoice number');
   });
 });

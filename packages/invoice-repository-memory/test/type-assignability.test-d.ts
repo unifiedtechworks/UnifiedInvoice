@@ -44,6 +44,17 @@ repository.discardDraft(id, { expectedVersion: version });
 // @ts-expect-error Factory createDraft accepts runtime DraftInvoice, not SerializedInvoice
 const invalidCreateSerialized = repository.createDraft(serialized);
 
+// @ts-expect-error updateDraft accepts runtime DraftInvoice, not SerializedInvoice
+const invalidUpdateSerialized = repository.updateDraft(serialized, { expectedVersion: version });
+
+// @ts-expect-error saveFinalized accepts runtime FinalizedInvoice, not SerializedInvoice
+const invalidSaveFinalizedSerialized = repository.saveFinalized(serialized, {
+  expectedVersion: version,
+});
+
+// @ts-expect-error saveVoided accepts runtime VoidedInvoice, not SerializedInvoice
+const invalidSaveVoidedSerialized = repository.saveVoided(serialized, { expectedVersion: version });
+
 // @ts-expect-error FinalizedInvoice cannot be updated through draft persistence operation
 const invalidUpdateFinalized = repository.updateDraft(finalized, { expectedVersion: version });
 
@@ -64,6 +75,9 @@ void readonlyOptions;
 void factory;
 void repository;
 void invalidCreateSerialized;
+void invalidUpdateSerialized;
+void invalidSaveFinalizedSerialized;
+void invalidSaveVoidedSerialized;
 void invalidUpdateFinalized;
 void invalidSaveFinalizedDraft;
 void invalidSaveVoidedFinalized;
