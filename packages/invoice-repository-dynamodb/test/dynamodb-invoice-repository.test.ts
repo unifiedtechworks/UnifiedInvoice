@@ -27,8 +27,38 @@ const must = <T>(result: Readonly<{ ok: true; value: T }> | Readonly<{ ok: false
   return result.value;
 };
 
+const seedListRecords = async (repository: ReturnType<typeof repositoryFixture>['repository']) => {
+  await repository.createDraft(draftInvoice('list-draft'));
+
+  const finalizedDraft = finalizableDraft('list-finalized');
+  const finalizedCreated = must(await repository.createDraft(finalizedDraft));
+  await repository.saveFinalized(finalizedInvoice('list-finalized', 'INV-1002'), {
+    expectedVersion: finalizedCreated.version,
+  });
+
+  const voidedDraft = finalizableDraft('list-voided');
+  const voidedCreated = must(await repository.createDraft(voidedDraft));
+  const finalizedForVoid = finalizedInvoice('list-voided', 'INV-1001');
+  const finalizedSaved = must(
+    await repository.saveFinalized(finalizedForVoid, {
+      expectedVersion: voidedCreated.version,
+    }),
+  );
+  await repository.saveVoided(voidedInvoice(finalizedForVoid), {
+    expectedVersion: finalizedSaved.version,
+  });
+};
+
+const listedIds = async (
+  repository: ReturnType<typeof repositoryFixture>['repository'],
+  query?: Parameters<ReturnType<typeof repositoryFixture>['repository']['list']>[0],
+) => {
+  const result = must(await repository.list(query));
+  return result.items.map((item) => String(item.id));
+};
+
 describe('DynamoDB invoice repository factory and draft behavior', () => {
-  it('validates configuration and keeps list deferred', async () => {
+  it('validates configuration', () => {
     const fake = new FakeDynamoDbDocumentClient();
     expect(() =>
       createDynamoDbInvoiceRepository({
@@ -51,14 +81,6 @@ describe('DynamoDB invoice repository factory and draft behavior', () => {
         client: {} as never,
       }),
     ).toThrow('client must be a DynamoDBDocumentClient');
-
-    await expect(repositoryFixture().repository.list()).resolves.toMatchObject({
-      ok: false,
-      error: {
-        code: 'repository_unavailable',
-        message: 'list is not implemented in @invoice/invoice-repository-dynamodb until Task 011C.',
-      },
-    });
   });
 
   it('rejects invalid generated versions before writing', async () => {
@@ -310,6 +332,163 @@ describe('DynamoDB invoice repository validation and AWS errors', () => {
     ).resolves.toMatchObject({
       ok: false,
       error: { code: 'repository_unavailable', detail: 'TransactionCanceledException' },
+    });
+  });
+});
+
+describe('DynamoDB invoice repository list behavior', () => {
+  it('returns an immutable empty list and follows internal DynamoDB pages', async () => {
+    const empty = must(await repositoryFixture().repository.list());
+    expect(empty).toEqual({ items: [] });
+    expect(Object.isFrozen(empty)).toBe(true);
+    expect(Object.isFrozen(empty.items)).toBe(true);
+
+    const { repository } = repositoryFixture('owner-a', new FakeDynamoDbDocumentClient(1));
+    await seedListRecords(repository);
+    await expect(listedIds(repository)).resolves.toEqual([
+      'list-voided',
+      'list-finalized',
+      'list-draft',
+    ]);
+  });
+
+  it('lists only the repository owner and excludes number reservations', async () => {
+    const fake = new FakeDynamoDbDocumentClient();
+    const ownerA = repositoryFixture('owner-a', fake).repository;
+    const ownerB = repositoryFixture('owner-b', fake).repository;
+    await seedListRecords(ownerA);
+    await ownerB.createDraft(draftInvoice('owner-b-draft'));
+
+    await expect(listedIds(ownerA)).resolves.toEqual([
+      'list-voided',
+      'list-finalized',
+      'list-draft',
+    ]);
+    await expect(listedIds(ownerB)).resolves.toEqual(['owner-b-draft']);
+  });
+
+  it('filters every supported lifecycle kind', async () => {
+    const { repository } = repositoryFixture();
+    await seedListRecords(repository);
+    await expect(listedIds(repository, { kind: 'draft' })).resolves.toEqual(['list-draft']);
+    await expect(listedIds(repository, { kind: 'finalized' })).resolves.toEqual(['list-finalized']);
+    await expect(listedIds(repository, { kind: 'voided' })).resolves.toEqual(['list-voided']);
+  });
+
+  it('searches invoice numbers and customer names simply and case-insensitively', async () => {
+    const { repository } = repositoryFixture();
+    await seedListRecords(repository);
+    await expect(listedIds(repository, { search: 'INV-1002' })).resolves.toEqual([
+      'list-finalized',
+    ]);
+    await expect(listedIds(repository, { search: '100' })).resolves.toEqual([
+      'list-voided',
+      'list-finalized',
+    ]);
+    await expect(listedIds(repository, { search: 'Buyer list-finalized' })).resolves.toEqual([
+      'list-finalized',
+    ]);
+    await expect(listedIds(repository, { search: 'VoIdEd' })).resolves.toEqual(['list-voided']);
+    await expect(listedIds(repository, { search: '   ' })).resolves.toEqual([
+      'list-voided',
+      'list-finalized',
+      'list-draft',
+    ]);
+    await expect(listedIds(repository, { search: 'unrelated' })).resolves.toEqual([]);
+  });
+
+  it('sorts supported fields and keeps missing optional values last', async () => {
+    const { repository } = repositoryFixture();
+    await seedListRecords(repository);
+    await expect(
+      listedIds(repository, { sortBy: 'updatedAt', sortDirection: 'asc' }),
+    ).resolves.toEqual(['list-draft', 'list-finalized', 'list-voided']);
+    await expect(
+      listedIds(repository, { sortBy: 'updatedAt', sortDirection: 'desc' }),
+    ).resolves.toEqual(['list-voided', 'list-finalized', 'list-draft']);
+    await expect(
+      listedIds(repository, { sortBy: 'createdAt', sortDirection: 'asc' }),
+    ).resolves.toEqual(['list-draft', 'list-finalized', 'list-voided']);
+    await expect(
+      listedIds(repository, { sortBy: 'issueDate', sortDirection: 'asc' }),
+    ).resolves.toEqual(['list-finalized', 'list-voided', 'list-draft']);
+    await expect(
+      listedIds(repository, { sortBy: 'invoiceNumber', sortDirection: 'asc' }),
+    ).resolves.toEqual(['list-voided', 'list-finalized', 'list-draft']);
+    await expect(
+      listedIds(repository, { sortBy: 'invoiceNumber', sortDirection: 'desc' }),
+    ).resolves.toEqual(['list-finalized', 'list-voided', 'list-draft']);
+  });
+
+  it('uses invoice ID as deterministic tie-breaker', async () => {
+    const { repository } = repositoryFixture();
+    await repository.createDraft(draftInvoice('tie-b'));
+    await repository.createDraft(draftInvoice('tie-a'));
+    await expect(
+      listedIds(repository, { sortBy: 'updatedAt', sortDirection: 'desc' }),
+    ).resolves.toEqual(['tie-a', 'tie-b']);
+  });
+
+  it('paginates with offset cursors and handles offsets beyond results', async () => {
+    const { repository } = repositoryFixture();
+    await seedListRecords(repository);
+    const first = must(await repository.list({ pageSize: 2 }));
+    expect(first.items.map((item) => String(item.id))).toEqual(['list-voided', 'list-finalized']);
+    expect(first.nextCursor).toBe('offset:2');
+    if (first.nextCursor === undefined) throw new Error('Expected next cursor.');
+    const second = must(await repository.list({ pageSize: 2, cursor: first.nextCursor }));
+    expect(second.items.map((item) => String(item.id))).toEqual(['list-draft']);
+    expect(second.nextCursor).toBeUndefined();
+    expect(must(await repository.list({ cursor: 'offset:99' }))).toEqual({ items: [] });
+  });
+
+  it('validates cursors and page sizes', async () => {
+    const { repository } = repositoryFixture();
+    for (const cursor of ['bad-cursor', 'offset:-1', `offset:${Number.MAX_SAFE_INTEGER + 1}`]) {
+      await expect(repository.list({ cursor })).resolves.toMatchObject({
+        ok: false,
+        error: { code: 'repository_invariant_violation', path: 'cursor' },
+      });
+    }
+    for (const pageSize of [0, 101, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+      await expect(repository.list({ pageSize })).resolves.toMatchObject({
+        ok: false,
+        error: { code: 'repository_invariant_violation', path: 'pageSize' },
+      });
+    }
+  });
+
+  it('rejects corrupt queried items instead of leaking partial metadata', async () => {
+    const { repository, fake } = repositoryFixture();
+    await repository.createDraft(draftInvoice('corrupt'));
+    const item = fake.getItem('OWNER#owner-a', 'INVOICE#corrupt');
+    if (item === undefined) throw new Error('Expected stored item.');
+    fake.setItem({ ...item, customerDisplayName: 'Contradictory metadata' });
+    await expect(repository.list()).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'repository_invariant_violation', path: 'customerDisplayName' },
+    });
+  });
+
+  it('does not leak mutable list state', async () => {
+    const { repository } = repositoryFixture();
+    await seedListRecords(repository);
+    const first = must(await repository.list());
+    expect(Object.isFrozen(first)).toBe(true);
+    expect(Object.isFrozen(first.items)).toBe(true);
+    expect(Object.isFrozen(first.items[0])).toBe(true);
+    expect(() => (first.items as unknown[]).push(first.items[0] as unknown)).toThrow(TypeError);
+    expect(() => {
+      (first.items[0] as { customerDisplayName?: string }).customerDisplayName = 'Mutated';
+    }).toThrow(TypeError);
+    await expect(listedIds(repository)).resolves.toEqual([
+      'list-voided',
+      'list-finalized',
+      'list-draft',
+    ]);
+    await expect(repository.getById(invoiceId('list-voided'))).resolves.toMatchObject({
+      ok: true,
+      value: { invoice: { kind: 'voided' } },
     });
   });
 });

@@ -16,7 +16,8 @@ This repository is a TypeScript monorepo for an invoice-management platform.
 - `packages/invoice-repository-dynamodb` is the owner-scoped durable DynamoDB adapter. It is
   separate from the storage-neutral repository contracts and the in-memory adapter; Task 011B
   implements core draft/finalized/voided single-record persistence with conditional writes and
-  invoice-number transactions, while list/query behavior remains deferred to Task 011C.
+  invoice-number transactions, and Task 011C implements validated owner-partition list/query,
+  search, deterministic sorting, and offset pagination without a table-wide scan.
 - `packages/validation` is reserved for shared validation primitives.
 - `packages/api-client` is reserved for a future client abstraction and contains no backend implementation.
 - `packages/ui` contains React Native primitive-based UI that can be consumed by Android and web.

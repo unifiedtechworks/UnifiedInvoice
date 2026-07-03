@@ -2,12 +2,13 @@
 
 ## Status
 
-Task 011A is complete. Task 011B core persistence is implemented locally and ready for verification.
+Tasks 011A and 011B are complete. Task 011C list/query behavior is implemented locally and ready for
+verification.
 
 ## Objective
 
-Deliver the DynamoDB adapter in reviewable phases: establish its package boundary in 011A, then
-implement core owner-scoped persistence in 011B while leaving list/query behavior to 011C.
+Deliver the DynamoDB adapter in reviewable phases: establish its package boundary in 011A,
+implement core owner-scoped persistence in 011B, and add list/query behavior in 011C.
 
 ## Scope implemented in 011A
 
@@ -37,19 +38,33 @@ implement core owner-scoped persistence in 011B while leaving list/query behavio
 - Added `@aws-sdk/client-dynamodb` and `@aws-sdk/lib-dynamodb` only to this adapter package.
 - Added command-aware fake-client tests; no tests contact AWS.
 
+## Scope implemented in 011C
+
+- Implemented `list(query?)` with the same defaults, validation, filtering, search, sorting,
+  tie-breaking, optional-field ordering, pagination, and immutable outputs as the memory adapter.
+- Queries only the authenticated owner partition with `begins_with(SK, "INVOICE#")`; never scans
+  the table, crosses owners, or includes invoice-number reservations.
+- Follows DynamoDB `LastEvaluatedKey` pages internally before applying globally correct adapter-
+  local ordering and `offset:<n>` pagination.
+- Reuses Task 011B envelope and canonical record validation so corrupt items fail the whole list
+  instead of leaking metadata or partial results.
+- Extended the fake document client with paginated `QueryCommand` behavior and added focused list,
+  owner-isolation, validation, corruption, and immutability tests without real AWS calls.
+- Added no dependencies and made no API, SAM, Cognito, web, UI, or repository-contract changes.
+
 ## Planned sequence
 
 - **011A:** scaffold package only. (This task.)
 - **011B:** implement core draft, finalized, voided, read, discard, concurrency, validation,
   transaction, and invoice-number reservation behavior. (Implemented.)
-- **011C:** implement durable list/query/cursor behavior if separated for safe review.
+- **011C:** implement durable list/query/cursor behavior. (Implemented.)
 - **011D:** integrate with `apps/api` or confirm that composition stays in the planned API task.
 
 ## Explicit non-goals
 
-No list/query/search/sort/pagination, invoice-number generation, API routes, authentication, UI,
-migrations, local/browser storage, AWS resource creation, DynamoDB table changes, real AWS account
-configuration, deployment, commit, or Task 011C work is included.
+No invoice-number generation, API routes, authentication, UI, migrations, local/browser storage,
+AWS resource or GSI creation, DynamoDB table changes, real AWS account configuration, deployment,
+commit, or Task 012 work is included.
 
 ## Verification
 

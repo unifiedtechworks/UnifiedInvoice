@@ -1,4 +1,4 @@
-import type { InvoiceId, InvoiceNumber } from '@invoice/domain';
+import { parseInvoiceId, type InvoiceId, type InvoiceNumber } from '@invoice/domain';
 import {
   serializeFinalizedInvoice,
   type DraftInvoice,
@@ -10,8 +10,10 @@ import {
   DeleteCommand,
   GetCommand,
   PutCommand,
+  QueryCommand,
   TransactWriteCommand,
   type DynamoDBDocumentClient,
+  type QueryCommandInput,
 } from '@aws-sdk/lib-dynamodb';
 import {
   isInvoiceRecordVersion,
@@ -24,6 +26,10 @@ import {
   type InvoiceRecordVersion,
   type InvoiceRepository,
   type InvoiceRepositoryResult,
+  type InvoiceListItem,
+  type InvoiceListQuery,
+  type InvoiceListResult,
+  type InvoiceListSortBy,
   type SaveFinalizedInvoiceOptions,
   type SaveInvoiceResult,
   type SaveVoidedInvoiceOptions,
@@ -86,6 +92,9 @@ type LoadedInvoice = Readonly<{
   version: InvoiceRecordVersion;
 }>;
 
+const DEFAULT_PAGE_SIZE = 50;
+const MAX_PAGE_SIZE = 100;
+
 const invalidInvoiceRecord = (message: string, path?: string) =>
   repoErr(
     makeInvoiceRepositoryError('invalid_invoice_record', message, {
@@ -135,6 +144,81 @@ const defaultGenerateVersion = (): InvoiceRecordVersion =>
 
 const validateNonEmpty = (value: string, name: string): void => {
   if (value.trim().length === 0) throw new TypeError(`${name} must be a non-empty string.`);
+};
+
+const parsePageSize = (pageSize: number | undefined): InvoiceRepositoryResult<number> => {
+  if (pageSize === undefined) return repoOk(DEFAULT_PAGE_SIZE);
+  if (!Number.isSafeInteger(pageSize))
+    return invariantViolation('List pageSize must be a safe integer from 1 to 100.', 'pageSize');
+  if (pageSize < 1)
+    return invariantViolation('List pageSize must be greater than zero.', 'pageSize');
+  if (pageSize > MAX_PAGE_SIZE)
+    return invariantViolation('List pageSize must be no greater than 100.', 'pageSize');
+  return repoOk(pageSize);
+};
+
+const parseCursorOffset = (cursor: string | undefined): InvoiceRepositoryResult<number> => {
+  if (cursor === undefined) return repoOk(0);
+  const match = /^offset:(\d+)$/u.exec(cursor);
+  if (match?.[1] === undefined)
+    return invariantViolation(
+      'List cursor must use offset:<non-negative integer> format.',
+      'cursor',
+    );
+  const offset = Number(match[1]);
+  if (!Number.isSafeInteger(offset))
+    return invariantViolation('List cursor offset must be a safe integer.', 'cursor');
+  return repoOk(offset);
+};
+
+const toInvoiceListItem = (record: StoredInvoiceRecord): InvoiceListItem =>
+  Object.freeze({
+    id: record.id,
+    kind: record.kind,
+    version: record.version,
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+    ...(record.invoiceNumber === undefined ? {} : { invoiceNumber: record.invoiceNumber }),
+    ...(record.customerDisplayName === undefined
+      ? {}
+      : { customerDisplayName: record.customerDisplayName }),
+    ...(record.issueDate === undefined ? {} : { issueDate: record.issueDate }),
+    ...(record.dueDate === undefined ? {} : { dueDate: record.dueDate }),
+    ...(record.finalizedAt === undefined ? {} : { finalizedAt: record.finalizedAt }),
+    ...(record.voidedAt === undefined ? {} : { voidedAt: record.voidedAt }),
+  });
+
+const sortValue = (record: StoredInvoiceRecord, sortBy: InvoiceListSortBy): string | undefined => {
+  switch (sortBy) {
+    case 'updatedAt':
+      return record.updatedAt;
+    case 'createdAt':
+      return record.createdAt;
+    case 'issueDate':
+      return record.issueDate;
+    case 'invoiceNumber':
+      return record.invoiceNumber;
+  }
+};
+
+const compareRecords = (
+  left: StoredInvoiceRecord,
+  right: StoredInvoiceRecord,
+  query: Required<Pick<InvoiceListQuery, 'sortBy' | 'sortDirection'>>,
+): number => {
+  const leftValue = sortValue(left, query.sortBy);
+  const rightValue = sortValue(right, query.sortBy);
+  if (leftValue !== undefined && rightValue === undefined) return -1;
+  if (leftValue === undefined && rightValue !== undefined) return 1;
+  if (leftValue !== undefined && rightValue !== undefined && leftValue !== rightValue) {
+    const primary = leftValue < rightValue ? -1 : 1;
+    return query.sortDirection === 'asc' ? primary : -primary;
+  }
+  const leftId = String(left.id);
+  const rightId = String(right.id);
+  if (leftId !== rightId) return leftId < rightId ? -1 : 1;
+  if (left.version === right.version) return 0;
+  return left.version < right.version ? -1 : 1;
 };
 
 export const createDynamoDbInvoiceRepository = (
@@ -270,6 +354,40 @@ export const createDynamoDbInvoiceRepository = (
       )
         return invariantViolation('Invoice-number reservation item is invalid.');
       return repoOk(output.Item as unknown as ReservationItem);
+    } catch (error) {
+      return repositoryUnavailable(error);
+    }
+  };
+
+  const queryInvoiceRecords = async (): Promise<
+    InvoiceRepositoryResult<readonly StoredInvoiceRecord[]>
+  > => {
+    const records: StoredInvoiceRecord[] = [];
+    let exclusiveStartKey: QueryCommandInput['ExclusiveStartKey'];
+    try {
+      do {
+        const output = await options.client.send(
+          new QueryCommand({
+            TableName: tableName,
+            KeyConditionExpression: '#pk = :ownerKey AND begins_with(#sk, :invoicePrefix)',
+            ExpressionAttributeNames: { '#pk': 'PK', '#sk': 'SK' },
+            ExpressionAttributeValues: { ':ownerKey': ownerKey, ':invoicePrefix': 'INVOICE#' },
+            ...(exclusiveStartKey === undefined ? {} : { ExclusiveStartKey: exclusiveStartKey }),
+          }),
+        );
+        for (const item of output.Items ?? []) {
+          if (!isObjectRecord(item) || typeof item.invoiceId !== 'string')
+            return invalidInvoiceRecord('DynamoDB invoice item shape is invalid.');
+          const parsedId = parseInvoiceId(item.invoiceId);
+          if (!parsedId.ok)
+            return invalidInvoiceRecord('DynamoDB invoice item ID is invalid.', 'invoiceId');
+          const parsedItem = parseInvoiceItem(item, parsedId.value);
+          if (!parsedItem.ok) return parsedItem;
+          records.push(parsedItem.value.record);
+        }
+        exclusiveStartKey = output.LastEvaluatedKey;
+      } while (exclusiveStartKey !== undefined);
+      return repoOk(Object.freeze(records));
     } catch (error) {
       return repositoryUnavailable(error);
     }
@@ -566,12 +684,44 @@ export const createDynamoDbInvoiceRepository = (
       );
     },
 
-    async list() {
-      return repoErr(
-        makeInvoiceRepositoryError(
-          'repository_unavailable',
-          'list is not implemented in @invoice/invoice-repository-dynamodb until Task 011C.',
-        ),
+    async list(query: InvoiceListQuery = {}): Promise<InvoiceRepositoryResult<InvoiceListResult>> {
+      const pageSize = parsePageSize(query.pageSize);
+      if (!pageSize.ok) return pageSize;
+      const cursorOffset = parseCursorOffset(query.cursor);
+      if (!cursorOffset.ok) return cursorOffset;
+      const queried = await queryInvoiceRecords();
+      if (!queried.ok) return queried;
+
+      const normalizedSearch = query.search?.trim().toLowerCase();
+      const searchedRecords =
+        normalizedSearch === undefined || normalizedSearch === ''
+          ? queried.value
+          : queried.value.filter((record) =>
+              [record.invoiceNumber, record.customerDisplayName].some(
+                (candidate) =>
+                  candidate !== undefined &&
+                  String(candidate).toLowerCase().includes(normalizedSearch),
+              ),
+            );
+      const filteredRecords =
+        query.kind === undefined
+          ? searchedRecords
+          : searchedRecords.filter((record) => record.kind === query.kind);
+      const sortQuery = {
+        sortBy: query.sortBy ?? 'updatedAt',
+        sortDirection: query.sortDirection ?? 'desc',
+      } as const;
+      const sortedRecords = [...filteredRecords].sort((left, right) =>
+        compareRecords(left, right, sortQuery),
+      );
+      const start = cursorOffset.value;
+      const end = start + pageSize.value;
+      const items = Object.freeze(sortedRecords.slice(start, end).map(toInvoiceListItem));
+      return repoOk(
+        Object.freeze({
+          items,
+          ...(end < sortedRecords.length ? { nextCursor: `offset:${end}` } : {}),
+        }),
       );
     },
 

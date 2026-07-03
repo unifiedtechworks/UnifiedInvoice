@@ -2,7 +2,8 @@
 
 ## Status
 
-Accepted. Task 011A created the scaffold, and Task 011B implements core persistence.
+Accepted. Task 011A created the scaffold, Task 011B implemented core persistence, and Task 011C
+implements list/query behavior.
 
 ## Context
 
@@ -15,8 +16,8 @@ enter domain, lifecycle, calculation, repository-port, API-client, or UI package
 
 Create `@invoice/invoice-repository-dynamodb` as a separate adapter package. It depends toward the
 storage-neutral repository boundary; no domain or repository package depends back on it. Task 011B
-implements create, update, get, discard, finalize-save, and void-save operations. `list` remains an
-explicit `repository_unavailable` result until Task 011C.
+implements create, update, get, discard, finalize-save, and void-save operations. `list` is now an
+owner-scoped adapter operation with the same observable query semantics as the memory adapter.
 
 The public options require a `DynamoDBDocumentClient`, invoice table name, and authenticated owner
 ID. Client injection prevents global clients and lets tests use a command-aware fake without real
@@ -25,7 +26,7 @@ opaque token validated by the repository version rules.
 
 ## Intended table model
 
-The adapter will map ADR 0009's owner-partitioned model:
+The adapter maps ADR 0009's owner-partitioned model:
 
 ```text
 Invoice item:
@@ -74,31 +75,42 @@ not generate or sequence invoice numbers.
 
 ## List/query strategy
 
-Task 011B stores GSI1 metadata but does not query it. Task 011C will query GSI1 in descending
-updated-time order and encode DynamoDB's
-evaluated key as an opaque cursor. Lifecycle filtering may continue bounded reads to fill a page.
-Small-dataset invoice-number/customer-name search may use bounded post-filtering. Other sort modes
-remain unavailable until an index can provide globally correct pagination. OpenSearch and full-text
-search are not introduced.
+Task 011C uses a correct small-dataset strategy before optimizing around an undeployed GSI. It
+queries only `PK = OWNER#<ownerId>` with `begins_with(SK, "INVOICE#")`, follows every DynamoDB
+`LastEvaluatedKey` internally, and excludes number-reservation items without scanning the table or
+crossing owner partitions.
+
+Every queried item passes the Task 011B physical-envelope and canonical-record validation before
+output. The adapter then applies optional lifecycle filtering; simple case-insensitive search over
+invoice number and customer display name; deterministic sorting by updated time, created time,
+issue date, or invoice number; and stable ID/version tie-breaking. Missing optional sort values are
+always placed last.
+
+Public pagination uses opaque `offset:<non-negative integer>` cursors, with a default page size of
+50 and maximum of 100, matching the memory adapter. DynamoDB keys are not exposed. This requires
+reading the owner's invoice set before filtering and sorting, which is accepted for the initial
+single-user/small-data workload. GSI-optimized listing or a different opaque cursor encoding remains
+future work when measured volume justifies it. OpenSearch and full-text search are not introduced.
 
 ## Implementation sequence
 
 - 011A: package, public types, throwing factory, tests, documentation, and workspace wiring only.
 - 011B: core draft/finalized/voided persistence, reads, discard, validation, concurrency,
   transactions, number reservations, AWS SDK dependencies, and fake-client tests. (Implemented.)
-- 011C: durable list/query/cursor behavior if kept separate for review safety.
+- 011C: owner-partition Query, validation, filter/search/sort behavior, internal DynamoDB paging,
+  and offset cursors. (Implemented.)
 - 011D: compose the adapter into `apps/api` or confirm that integration remains in the planned HTTP
   API task.
 
 ## Non-goals
 
-Task 011B includes no list/query/search/sort/pagination, AWS resource creation, invoice-number
-generation, API routes, authentication implementation, UI, migrations, local/browser storage,
-deployment, or changes to the in-memory adapter.
+Task 011C includes no AWS resource/GSI creation, invoice-number generation, API routes,
+authentication implementation, UI, migrations, local/browser storage, deployment, OpenSearch, or
+changes to repository contracts or the in-memory adapter.
 
 ## Consequences
 
 AWS-specific persistence has a clear package boundary while repository contracts and business
 logic remain portable. Core operations now use consistent reads, conditional writes, and lifecycle
-transactions. The deliberately unavailable list method prevents accidental reliance on incomplete
-query semantics before Task 011C.
+transactions. List behavior is correct and adapter-consistent for the initial workload, while its
+read-all-owner cost is explicit and can be optimized later without changing the repository port.

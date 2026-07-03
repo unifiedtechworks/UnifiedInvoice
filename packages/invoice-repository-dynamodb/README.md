@@ -22,8 +22,15 @@ Invoice items use owner-partitioned `OWNER#<ownerId>` / `INVOICE#<invoiceId>` ke
 transactionally claims `INVOICE_NUMBER#<invoiceNumber>`, and voiding preserves that reservation.
 Canonical serialized records are parsed and checked against physical item metadata on reads.
 
-`list` intentionally returns `repository_unavailable` until Task 011C. The package creates no AWS
-resources and does not implement API routes, authentication, or invoice-number generation.
+Task 011C implements `list` by querying every `INVOICE#` item in the authenticated owner partition,
+following DynamoDB's internal pages, validating each physical/canonical record, and then applying
+kind filtering, simple invoice-number/customer search, deterministic sorting, and `offset:<n>`
+pagination. Reservation items and other owners are never queried. The early-production strategy is
+correct for small owner datasets; a future measured need may replace it with GSI-optimized access
+behind the same opaque cursor contract.
+
+The package creates no AWS resources and does not implement API routes, authentication, or invoice-
+number generation.
 
 ## Local commands
 
@@ -34,5 +41,4 @@ pnpm --filter @invoice/invoice-repository-dynamodb lint
 pnpm --filter @invoice/invoice-repository-dynamodb build
 ```
 
-Task 011C will add list/query behavior. API composition remains separate in 011D or the existing
-API integration task split.
+API composition remains separate in 011D or the existing API integration task split.

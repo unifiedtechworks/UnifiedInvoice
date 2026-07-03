@@ -2,6 +2,7 @@ import {
   DeleteCommand,
   GetCommand,
   PutCommand,
+  QueryCommand,
   TransactWriteCommand,
   type DynamoDBDocumentClient,
 } from '@aws-sdk/lib-dynamodb';
@@ -35,6 +36,8 @@ export class FakeDynamoDbDocumentClient {
   private items = new Map<string, Item>();
   private nextError: unknown;
   private commandError: Readonly<{ commandName: string; error: unknown }> | undefined;
+
+  constructor(private readonly queryPageSize = 2) {}
 
   asClient(): DynamoDBDocumentClient {
     return this as unknown as DynamoDBDocumentClient;
@@ -95,6 +98,34 @@ export class FakeDynamoDbDocumentClient {
         throw namedError('ConditionalCheckFailedException');
       this.items.delete(keyOf(key));
       return {};
+    }
+    if (command instanceof QueryCommand) {
+      const values = command.input.ExpressionAttributeValues as Record<string, unknown>;
+      const ownerKey = values[':ownerKey'];
+      const prefix = values[':invoicePrefix'];
+      const matching = [...this.items.values()]
+        .filter(
+          (item) =>
+            item.PK === ownerKey &&
+            typeof item.SK === 'string' &&
+            typeof prefix === 'string' &&
+            item.SK.startsWith(prefix),
+        )
+        .sort((left, right) => String(left.SK).localeCompare(String(right.SK)));
+      const startKey = command.input.ExclusiveStartKey as Item | undefined;
+      const start =
+        startKey === undefined
+          ? 0
+          : Math.max(0, matching.findIndex((item) => keyOf(item) === keyOf(startKey)) + 1);
+      const items = matching.slice(start, start + this.queryPageSize);
+      const hasMore = start + items.length < matching.length;
+      const last = items.at(-1);
+      return {
+        Items: clone(items),
+        ...(hasMore && last !== undefined
+          ? { LastEvaluatedKey: { PK: last.PK, SK: last.SK } }
+          : {}),
+      };
     }
     if (command instanceof TransactWriteCommand) {
       const transactionItems = new Map(this.items);
