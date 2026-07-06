@@ -2,7 +2,7 @@
 
 ## Status
 
-Implemented locally; not deployed and not committed.
+Implemented and deployed to dev in Task 014B; not committed.
 
 ## Objective
 
@@ -41,3 +41,24 @@ deployment, and later-task work remain deferred. `/health` remains public.
 Run the focused CDK checks, API checks, repository-wide checks, generated-output cleanup, read-only
 AWS identity check, CDK diff, and final Git inspection listed in the Task 014 request. Deployment is
 not automatic and must wait for explicit approval after diff review.
+
+## Task 014B dev deployment
+
+Task 014B deployed the Cognito auth scaffold to the existing dev stack.
+
+- Region: `us-west-2`.
+- AWS account recorded for review as `9064****2082`.
+- Stack name: `unified-invoice-dev-api`.
+- Stack outputs include `UserPoolId` and `UserPoolClientId` in addition to the existing health and
+  invoice table outputs.
+- Cognito User Pool verification confirmed the pool exists, public self-registration is disabled,
+  MFA is `OFF` for dev, email sign-in/recovery settings are present, and the estimated user count
+  is `0`.
+- User Pool Client verification confirmed the client exists and no client secret was returned.
+- Lambda configuration verification confirmed `COGNITO_USER_POOL_ID` and
+  `COGNITO_USER_POOL_CLIENT_ID` are present alongside `APP_ENV=dev` and
+  `INVOICES_TABLE_NAME=unified-invoice-dev-invoices`.
+- The `HealthApiUrl` endpoint remained public and returned
+  `{"ok":true,"service":"unified-invoice-api"}`.
+- No invoice API routes, users, passwords, secrets, hosted UI domain, VPC/NAT, app S3 bucket,
+  custom domain, budget, production resource, or Task 015 work was deployed.

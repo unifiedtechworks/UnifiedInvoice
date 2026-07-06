@@ -8,7 +8,7 @@ The current dev stack contains:
 - the existing `apps/api` Lambda artifact;
 - an API Gateway HTTP API with `GET /health`;
 - a 128 MB, five-second Node.js 22 Lambda;
-- a DynamoDB invoice repository table named `unified-invoice-<environment>-invoices`; and
+- a DynamoDB invoice repository table named `unified-invoice-<environment>-invoices`;
 - a Cognito User Pool, User Pool Client, and HTTP API JWT authorizer for future invoice routes; and
 - an explicit CloudWatch log group with 14-day retention.
 
@@ -84,8 +84,8 @@ auth UX, and removal policy before real users are onboarded.
 ## Dev deployment
 
 Task 012B deployed the health-only dev stack in `us-west-2` for masked account `9064****2082`.
-Task 013B deployed the DynamoDB table/IAM wiring to the same dev stack. The CDK bootstrap stack
-already existed and was not rerun.
+Task 013B deployed the DynamoDB table/IAM wiring to the same dev stack. Task 014B deployed the
+Cognito auth scaffold. The CDK bootstrap stack already existed and was not rerun.
 
 Use temporary region settings instead of changing global AWS configuration:
 
@@ -103,8 +103,8 @@ pnpm --filter @invoice/infra-cdk exec cdk deploy -c environment=dev
 ```
 
 The deployed dev stack is `unified-invoice-dev-api`. Its deployment outputs include
-`HealthApiUrl`, `HealthFunctionName`, and `InvoicesTableName`. Verify the deployed endpoint with
-the `HealthApiUrl` stack output:
+`HealthApiUrl`, `HealthFunctionName`, `InvoicesTableName`, `UserPoolId`, and `UserPoolClientId`.
+Verify the deployed endpoint with the `HealthApiUrl` stack output:
 
 ```powershell
 Invoke-RestMethod -Uri "<HealthApiUrl>"
@@ -130,3 +130,10 @@ Task 013B verification confirmed `unified-invoice-dev-invoices` is `ACTIVE`, use
 `APP_ENV=dev`, `INVOICES_TABLE_NAME=unified-invoice-dev-invoices`, timeout `5`, and memory `128`.
 No invoice routes, Cognito, VPC/NAT, app S3 bucket, custom domain, budget, secret, or production
 resource was deployed.
+
+Task 014B verification confirmed the Cognito User Pool and User Pool Client outputs exist, the User
+Pool exists with public self-registration disabled and MFA `OFF` for dev, no client secret was
+returned for the User Pool Client, and the Lambda has non-secret `COGNITO_USER_POOL_ID` and
+`COGNITO_USER_POOL_CLIENT_ID` environment variables. `/health` remained public and returned the
+expected JSON response. No invoice routes, users, passwords, hosted UI domain, VPC/NAT, app S3
+bucket, custom domain, budget, secret, or production resource was deployed.
