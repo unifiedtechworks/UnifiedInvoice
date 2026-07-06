@@ -2,7 +2,7 @@
 
 ## Status
 
-Implemented locally; not deployed and not committed.
+Implemented and deployed to dev in Task 013B; not committed.
 
 ## Objective
 
@@ -41,3 +41,21 @@ deferred. `/health` remains the only route.
 Run the focused CDK checks, API checks, repository-wide checks, generated-output cleanup, read-only
 AWS identity check, CDK diff, and final Git inspection listed in the Task 013 request. Deployment is
 not automatic and must wait for explicit approval.
+
+## Task 013B dev deployment
+
+Task 013B deployed the DynamoDB table/IAM wiring to the existing dev stack.
+
+- Region: `us-west-2`.
+- AWS account recorded for review as `9064****2082`.
+- Stack name: `unified-invoice-dev-api`.
+- Table name: `unified-invoice-dev-invoices`.
+- Stack outputs include `HealthApiUrl`, `HealthFunctionName`, and `InvoicesTableName`.
+- DynamoDB verification confirmed the table is `ACTIVE`, uses `PAY_PER_REQUEST` billing, and has
+  string keys `PK` and `SK`.
+- Lambda configuration verification confirmed `APP_ENV=dev`,
+  `INVOICES_TABLE_NAME=unified-invoice-dev-invoices`, timeout `5`, and memory size `128`.
+- The health endpoint from `HealthApiUrl` returned `{"ok":true,"service":"unified-invoice-api"}`.
+- No test data was written to DynamoDB.
+- No invoice API routes, Cognito, VPC/NAT, app S3 bucket, custom domain, budget, secret, production
+  resource, or Task 014 work was deployed.

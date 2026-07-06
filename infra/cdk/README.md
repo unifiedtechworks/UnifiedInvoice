@@ -60,7 +60,8 @@ customer data.
 ## Dev deployment
 
 Task 012B deployed the health-only dev stack in `us-west-2` for masked account `9064****2082`.
-The CDK bootstrap stack already existed and was not rerun.
+Task 013B deployed the DynamoDB table/IAM wiring to the same dev stack. The CDK bootstrap stack
+already existed and was not rerun.
 
 Use temporary region settings instead of changing global AWS configuration:
 
@@ -77,8 +78,9 @@ pnpm --filter @invoice/infra-cdk exec cdk diff -c environment=dev
 pnpm --filter @invoice/infra-cdk exec cdk deploy -c environment=dev
 ```
 
-The deployed Task 012B stack was `unified-invoice-dev-api`. Task 013 changes are local until an
-explicit deployment is approved. Verify the deployed endpoint with the `HealthApiUrl` stack output:
+The deployed dev stack is `unified-invoice-dev-api`. Its deployment outputs include
+`HealthApiUrl`, `HealthFunctionName`, and `InvoicesTableName`. Verify the deployed endpoint with
+the `HealthApiUrl` stack output:
 
 ```powershell
 Invoke-RestMethod -Uri "<HealthApiUrl>"
@@ -98,3 +100,9 @@ Destroy is intentionally a manual operation and was not run during Task 012B:
 ```powershell
 pnpm --filter @invoice/infra-cdk exec cdk destroy -c environment=dev
 ```
+
+Task 013B verification confirmed `unified-invoice-dev-invoices` is `ACTIVE`, uses on-demand
+`PAY_PER_REQUEST` billing, and has string keys `PK` and `SK`. Lambda verification confirmed
+`APP_ENV=dev`, `INVOICES_TABLE_NAME=unified-invoice-dev-invoices`, timeout `5`, and memory `128`.
+No invoice routes, Cognito, VPC/NAT, app S3 bucket, custom domain, budget, secret, or production
+resource was deployed.
