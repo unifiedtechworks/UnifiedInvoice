@@ -1,8 +1,9 @@
 import { resolve } from 'node:path';
 
 import { CfnOutput, Duration, RemovalPolicy, Stack, Tags, type StackProps } from 'aws-cdk-lib';
-import { HttpApi, HttpMethod } from 'aws-cdk-lib/aws-apigatewayv2';
+import { CfnAuthorizer, HttpApi, HttpMethod } from 'aws-cdk-lib/aws-apigatewayv2';
 import { HttpLambdaIntegration } from 'aws-cdk-lib/aws-apigatewayv2-integrations';
+import { AccountRecovery, Mfa, UserPool } from 'aws-cdk-lib/aws-cognito';
 import { AttributeType, BillingMode, Table } from 'aws-cdk-lib/aws-dynamodb';
 import { Effect, PolicyStatement } from 'aws-cdk-lib/aws-iam';
 import { Architecture, Code, Function as LambdaFunction, Runtime } from 'aws-cdk-lib/aws-lambda';
@@ -35,6 +36,31 @@ export class UnifiedInvoiceApiStack extends Stack {
       removalPolicy: RemovalPolicy.DESTROY,
     });
 
+    const userPool = new UserPool(this, 'UserPool', {
+      userPoolName: `${resourcePrefix}-users`,
+      selfSignUpEnabled: false,
+      signInAliases: { email: true },
+      accountRecovery: AccountRecovery.EMAIL_ONLY,
+      mfa: Mfa.OFF,
+      passwordPolicy: {
+        minLength: 12,
+        requireDigits: true,
+        requireLowercase: true,
+        requireSymbols: true,
+        requireUppercase: true,
+      },
+      removalPolicy: RemovalPolicy.DESTROY,
+    });
+
+    const userPoolClient = userPool.addClient('UserPoolClient', {
+      userPoolClientName: `${resourcePrefix}-web-client`,
+      authFlows: {
+        userPassword: true,
+        userSrp: true,
+      },
+      generateSecret: false,
+    });
+
     const healthLogGroup = new LogGroup(this, 'HealthLogGroup', {
       logGroupName: `/aws/lambda/${resourcePrefix}-health`,
       retention: RetentionDays.TWO_WEEKS,
@@ -53,6 +79,8 @@ export class UnifiedInvoiceApiStack extends Stack {
       logGroup: healthLogGroup,
       environment: {
         APP_ENV: props.environmentName,
+        COGNITO_USER_POOL_CLIENT_ID: userPoolClient.userPoolClientId,
+        COGNITO_USER_POOL_ID: userPool.userPoolId,
         INVOICES_TABLE_NAME: invoicesTable.tableName,
       },
     });
@@ -77,6 +105,17 @@ export class UnifiedInvoiceApiStack extends Stack {
       createDefaultStage: true,
     });
 
+    new CfnAuthorizer(this, 'InvoiceJwtAuthorizer', {
+      apiId: healthApi.apiId,
+      authorizerType: 'JWT',
+      identitySource: ['$request.header.Authorization'],
+      name: `${resourcePrefix}-jwt-authorizer`,
+      jwtConfiguration: {
+        audience: [userPoolClient.userPoolClientId],
+        issuer: `https://cognito-idp.${this.region}.amazonaws.com/${userPool.userPoolId}`,
+      },
+    });
+
     healthApi.addRoutes({
       path: '/health',
       methods: [HttpMethod.GET],
@@ -94,6 +133,14 @@ export class UnifiedInvoiceApiStack extends Stack {
     new CfnOutput(this, 'InvoicesTableName', {
       description: 'Invoice repository DynamoDB table name',
       value: invoicesTable.tableName,
+    });
+    new CfnOutput(this, 'UserPoolId', {
+      description: 'Cognito User Pool ID for future authenticated routes',
+      value: userPool.userPoolId,
+    });
+    new CfnOutput(this, 'UserPoolClientId', {
+      description: 'Cognito User Pool Client ID for future web/API clients',
+      value: userPoolClient.userPoolClientId,
     });
   }
 }

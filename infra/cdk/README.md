@@ -9,9 +9,10 @@ The current dev stack contains:
 - an API Gateway HTTP API with `GET /health`;
 - a 128 MB, five-second Node.js 22 Lambda;
 - a DynamoDB invoice repository table named `unified-invoice-<environment>-invoices`; and
+- a Cognito User Pool, User Pool Client, and HTTP API JWT authorizer for future invoice routes; and
 - an explicit CloudWatch log group with 14-day retention.
 
-It creates no Cognito User Pool, VPC/NAT, custom domain, S3 bucket, budget, invoice route, secret,
+It creates no VPC/NAT, custom domain, S3 bucket, budget, invoice route, secret, real user, password,
 or account-specific configuration. No deployment is performed by repository scripts.
 
 ## Local commands
@@ -56,6 +57,29 @@ dynamodb:TransactWriteItems
 `dynamodb:Scan` and wildcard DynamoDB permissions are intentionally not granted. Production should
 revisit table removal policy, deletion protection, and point-in-time recovery before storing real
 customer data.
+
+## Cognito auth scaffold
+
+Task 014 adds the Cognito auth resources that future invoice routes will use:
+
+- User Pool named `unified-invoice-<environment>-users`;
+- public self-registration disabled;
+- email sign-in enabled;
+- strong password policy with 12-character minimum, uppercase, lowercase, number, and symbol
+  requirements;
+- account recovery by verified email;
+- MFA off for dev;
+- dev-focused destroy-on-stack-removal behavior;
+- User Pool Client named `unified-invoice-<environment>-web-client`;
+- no client secret; and
+- HTTP API JWT authorizer named `unified-invoice-<environment>-jwt-authorizer`.
+
+The JWT authorizer is intentionally prepared but not attached to any route yet. `/health` remains
+public, and no invoice API routes exist. The Lambda receives non-secret `COGNITO_USER_POOL_ID` and
+`COGNITO_USER_POOL_CLIENT_ID` environment variables for future handler composition. CDK does not
+create users, passwords, hosted UI domains, callback URLs, logout URLs, app S3 buckets, custom
+domains, budgets, or secrets. Production should revisit MFA, account recovery, custom domains,
+auth UX, and removal policy before real users are onboarded.
 
 ## Dev deployment
 

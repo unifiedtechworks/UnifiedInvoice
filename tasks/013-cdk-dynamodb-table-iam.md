@@ -59,3 +59,10 @@ Task 013B deployed the DynamoDB table/IAM wiring to the existing dev stack.
 - No test data was written to DynamoDB.
 - No invoice API routes, Cognito, VPC/NAT, app S3 bucket, custom domain, budget, secret, production
   resource, or Task 014 work was deployed.
+
+## Follow-on Task 014 boundary
+
+Task 014 adds the dev Cognito User Pool, User Pool Client, and HTTP API JWT authorizer scaffold for
+future authenticated invoice routes. It keeps `/health` public and does not add invoice API routes,
+real users, passwords, hosted UI domains, VPC/NAT, app S3 buckets, custom domains, budgets, secrets,
+production configuration, or deployment automation.

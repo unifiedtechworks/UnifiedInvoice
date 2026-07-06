@@ -3,7 +3,8 @@
 ## Status
 
 Accepted and implemented as the local Task 012A infrastructure scaffold, deployed to dev in Task
-012B, and extended with the Task 013 dev DynamoDB table/IAM wiring.
+012B, extended with the Task 013 dev DynamoDB table/IAM wiring, and extended with the Task 014
+Cognito auth scaffold.
 
 ## Context
 
@@ -27,7 +28,10 @@ The active CDK stack intentionally keeps the API surface health-only:
 - creates an API Gateway HTTP API route for `GET /health`;
 - creates a CloudWatch log group with 14-day retention;
 - creates the environment-scoped DynamoDB invoice table for future repository composition;
-- passes `APP_ENV` and `INVOICES_TABLE_NAME` to the Lambda;
+- creates the environment-scoped Cognito User Pool and User Pool Client for future authenticated
+  invoice routes;
+- prepares an HTTP API JWT authorizer without attaching it to `/health`;
+- passes non-secret table/auth resource identifiers to the Lambda;
 - grants only the table-scoped DynamoDB actions required by the repository adapter;
 - tags resources with `Project=UnifiedInvoice`, `ManagedBy=CDK`, and the configured
   `Environment`;
@@ -39,10 +43,10 @@ configuration is deferred.
 
 ## Deferred
 
-Task 013 adds the dev DynamoDB table and Lambda IAM wiring only. Cognito, invoice API routes,
-custom domains, S3 deploy buckets, budget resources, VPC/NAT, production stack configuration, real
-AWS account IDs, secrets, deployment automation, invoice-number generation, and API composition
-remain later concerns.
+Task 014 adds the dev Cognito auth scaffold only. Invoice API routes, user creation/passwords,
+hosted UI domains, custom domains, S3 deploy buckets, budget resources, VPC/NAT, production stack
+configuration, real AWS account IDs, secrets, deployment automation, invoice-number generation, and
+API composition remain later concerns.
 
 ## Consequences
 
