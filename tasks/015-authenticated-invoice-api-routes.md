@@ -2,7 +2,7 @@
 
 ## Status
 
-Implemented and deployed to dev in Task 015B; not committed.
+Implemented, deployed to dev in Task 015B, and committed before Task 016 began.
 
 ## Objective
 
@@ -69,6 +69,24 @@ Task 015B deployed the authenticated invoice route scaffold to the existing dev 
 - No test invoice data was written to DynamoDB.
 - No web integration, hosted UI/domain, VPC/NAT, app S3 bucket, custom domain, budget, secret,
   production resource, or Task 016 work was performed.
+
+## Task 016 authenticated verification follow-up
+
+Task 016 created one dev-only Cognito admin verification user using the deployed email-sign-in
+User Pool shape. The Cognito username is the approved email address and `preferred_username` is
+`dev-admin`; no password, token, full User Pool ID, full client ID, full account ID, or live URL is
+recorded here.
+
+Authenticated route verification confirmed:
+
+- `GET /health` remains public and returned the expected health JSON.
+- `GET /invoices` with a Cognito JWT returned `200` and an empty `items` list.
+- `GET /invoices/{id}` for a valid missing invoice ID returned `404 invoice_not_found`.
+- `POST /invoices/drafts`, `POST /invoices/{id}/finalize`, and `POST /invoices/{id}/void`
+  returned `501 not_implemented`.
+- The dev DynamoDB invoice table item count remained `0`; no invoice data was written.
+- No deploy, web integration, hosted UI/domain, production resource, additional Cognito user, or
+  Task 017 work was performed.
 
 ## Verification
 

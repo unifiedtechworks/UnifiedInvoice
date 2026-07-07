@@ -166,3 +166,12 @@ returned `{"ok":true,"service":"unified-invoice-api"}` and unauthenticated reque
 `GET /invoices`, `GET /invoices/{id}`, and `POST /invoices/drafts` returned `401 Unauthorized`.
 No users, passwords, test invoice data, web integration, hosted UI/domain, VPC/NAT, app S3 bucket,
 custom domain, budget, secret, production resource, or Task 016 work was created.
+
+Task 016 created one dev-only Cognito verification user for authenticated route testing, using the
+deployed email-sign-in User Pool shape and `preferred_username=dev-admin`. The token was kept only
+in the shell environment during verification. Authenticated checks confirmed `GET /invoices`
+returned `200` with an empty list, a valid missing invoice ID returned `404 invoice_not_found`, and
+the protected mutation stubs returned `501 not_implemented`. The dev DynamoDB invoice table item
+count remained `0`. No deployment, additional users, passwords or tokens in files, test invoice
+data, web integration, hosted UI/domain, VPC/NAT, app S3 bucket, custom domain, budget, secret,
+production resource, or Task 017 work was performed.
