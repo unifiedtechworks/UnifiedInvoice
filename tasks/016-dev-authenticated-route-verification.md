@@ -2,8 +2,7 @@
 
 ## Status
 
-Completed locally against the deployed dev stack; ready for review after final verification. No
-commit was created by this task.
+Completed locally against the deployed dev stack and committed before Task 017 began.
 
 ## Objective
 
@@ -53,6 +52,13 @@ recorded in this repository.
 No deployment was performed in Task 016. No additional Cognito users, passwords, hosted UI/domain,
 web app integration, invoice mutation behavior, test invoice data, VPC/NAT, app S3 bucket, custom
 domain, budget, secret, production resource, or Task 017 work was added.
+
+## Task 017 follow-up
+
+Task 017 implements `POST /invoices/drafts` locally after this verification task was committed.
+The Task 016 deployed verification results remain a snapshot of the previously deployed behavior:
+at that time `POST /invoices/drafts` returned `501 not_implemented`. Task 017 does not deploy the
+new create behavior without a later explicit deploy approval.
 
 ## Verification commands
 

@@ -1,5 +1,5 @@
 import { assertInvoiceId, type UtcTimestampString } from '@invoice/domain';
-import type { Invoice } from '@invoice/invoice-domain';
+import type { DraftInvoice, Invoice } from '@invoice/invoice-domain';
 import type { InvoiceRepository, InvoiceRepositoryResult } from '@invoice/invoice-repository';
 import { makeInvoiceRepositoryError, repoErr, repoOk } from '@invoice/invoice-repository';
 import { describe, expect, it, vi } from 'vitest';
@@ -42,7 +42,7 @@ const draftInvoice = Object.freeze({
 
 const okRepository = (overrides: Partial<InvoiceRepository> = {}): InvoiceRepository =>
   ({
-    createDraft: vi.fn(),
+    createDraft: vi.fn(async (invoice: DraftInvoice) => repoOk({ invoice, version: 'v-created' })),
     updateDraft: vi.fn(),
     saveFinalized: vi.fn(),
     saveVoided: vi.fn(),
@@ -70,6 +70,11 @@ const error = (code: Parameters<typeof makeInvoiceRepositoryError>[0]) =>
 
 const responseBody = (response: Awaited<ReturnType<ReturnType<typeof createInvoiceApiHandler>>>) =>
   JSON.parse(response.body) as unknown;
+
+const deterministicOptions = {
+  generateInvoiceId: () => 'invoice_created',
+  now: () => new Date('2026-01-02T03:04:05.000Z'),
+} as const;
 
 describe('invoice API routes', () => {
   it('requires an owner for GET /invoices', async () => {
@@ -219,11 +224,188 @@ describe('invoice API routes', () => {
     });
   });
 
-  it('returns protected 501 JSON responses for mutation stubs', async () => {
+  it('creates authenticated draft invoices for the JWT owner', async () => {
+    const repository = okRepository();
+    const repositoryFactory = vi.fn(() => repository);
+    const handler = createInvoiceApiHandler({ repositoryFactory, ...deterministicOptions });
+
+    const response = await handler(
+      event('POST', '/invoices/drafts', {
+        body: JSON.stringify({
+          draft: {
+            id: 'invoice_from_client',
+            ownerId: 'body-owner-ignored',
+            customer: { displayName: 'Acme Co' },
+            issueDate: '2026-02-01',
+            dueDate: '2026-02-15',
+            notes: 'First draft',
+          },
+        }),
+      }),
+    );
+
+    expect(repositoryFactory).toHaveBeenCalledWith('owner-123');
+    expect(repository.createDraft).toHaveBeenCalledTimes(1);
+    expect(repository.createDraft).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'draft',
+        id: assertInvoiceId('invoice_from_client'),
+        customer: { displayName: 'Acme Co' },
+        issueDate: '2026-02-01',
+        dueDate: '2026-02-15',
+        notes: 'First draft',
+        createdAt: '2026-01-02T03:04:05.000Z',
+        updatedAt: '2026-01-02T03:04:05.000Z',
+      }),
+    );
+    expect(response.statusCode).toBe(201);
+    expect(responseBody(response)).toEqual({
+      invoice: {
+        schemaVersion: 1,
+        kind: 'draft',
+        id: 'invoice_from_client',
+        customer: { displayName: 'Acme Co' },
+        issueDate: '2026-02-01',
+        dueDate: '2026-02-15',
+        currency: { code: 'USD', minorUnitDigits: 2 },
+        lines: [],
+        roundingMode: 'half_away_from_zero',
+        taxRoundingStrategy: 'per_line',
+        notes: 'First draft',
+        createdAt: '2026-01-02T03:04:05.000Z',
+        updatedAt: '2026-01-02T03:04:05.000Z',
+      },
+      version: 'v-created',
+    });
+  });
+
+  it('supports minimal draft creation with a generated invoice id', async () => {
+    const repository = okRepository();
+    const handler = createInvoiceApiHandler({
+      repositoryFactory: () => repository,
+      ...deterministicOptions,
+    });
+
+    const response = await handler(event('POST', '/invoices/drafts', { body: '{}' }));
+
+    expect(repository.createDraft).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'draft',
+        id: assertInvoiceId('invoice_created'),
+        currency: { code: 'USD', minorUnitDigits: 2 },
+        lines: [],
+        createdAt: '2026-01-02T03:04:05.000Z',
+        updatedAt: '2026-01-02T03:04:05.000Z',
+      }),
+    );
+    expect(response.statusCode).toBe(201);
+    expect(responseBody(response)).toMatchObject({
+      invoice: { kind: 'draft', id: 'invoice_created', lines: [] },
+      version: 'v-created',
+    });
+  });
+
+  it('maps malformed draft JSON to 400 before calling the repository', async () => {
+    const repository = okRepository();
+    const handler = createInvoiceApiHandler({ repositoryFactory: () => repository });
+
+    const response = await handler(event('POST', '/invoices/drafts', { body: '{"draft":' }));
+
+    expect(response.statusCode).toBe(400);
+    expect(repository.createDraft).not.toHaveBeenCalled();
+    expect(responseBody(response)).toEqual({
+      error: {
+        code: 'bad_request',
+        message: 'Request body must be valid JSON.',
+      },
+    });
+  });
+
+  it('maps draft validation errors to 400', async () => {
+    const repository = okRepository();
+    const handler = createInvoiceApiHandler({
+      repositoryFactory: () => repository,
+      ...deterministicOptions,
+    });
+
+    const response = await handler(
+      event('POST', '/invoices/drafts', {
+        body: JSON.stringify({
+          draft: {
+            issueDate: '2026-02-15',
+            dueDate: '2026-02-01',
+          },
+        }),
+      }),
+    );
+
+    expect(response.statusCode).toBe(400);
+    expect(repository.createDraft).not.toHaveBeenCalled();
+    expect(responseBody(response)).toEqual({
+      error: {
+        code: 'invalid_invoice',
+        message: 'Due date must not precede issue date.',
+      },
+    });
+  });
+
+  it('requires an owner for POST /invoices/drafts', async () => {
+    const handler = createInvoiceApiHandler({ repositoryFactory: () => okRepository() });
+    const response = await handler(unauthorizedEvent('POST', '/invoices/drafts'));
+
+    expect(response.statusCode).toBe(401);
+  });
+
+  it('maps duplicate draft IDs to 409', async () => {
+    const repository = okRepository({
+      createDraft: vi.fn(
+        async (): Promise<InvoiceRepositoryResult<never>> =>
+          repoErr(error('invoice_already_exists')),
+      ),
+    });
+    const handler = createInvoiceApiHandler({
+      repositoryFactory: () => repository,
+      ...deterministicOptions,
+    });
+
+    const response = await handler(event('POST', '/invoices/drafts', { body: '{}' }));
+
+    expect(response.statusCode).toBe(409);
+    expect(responseBody(response)).toEqual({
+      error: {
+        code: 'invoice_already_exists',
+        message: 'Repository invoice_already_exists error.',
+      },
+    });
+  });
+
+  it('maps draft repository unavailability to 503', async () => {
+    const repository = okRepository({
+      createDraft: vi.fn(
+        async (): Promise<InvoiceRepositoryResult<never>> =>
+          repoErr(error('repository_unavailable')),
+      ),
+    });
+    const handler = createInvoiceApiHandler({
+      repositoryFactory: () => repository,
+      ...deterministicOptions,
+    });
+
+    const response = await handler(event('POST', '/invoices/drafts', { body: '{}' }));
+
+    expect(response.statusCode).toBe(503);
+    expect(responseBody(response)).toEqual({
+      error: {
+        code: 'repository_unavailable',
+        message: 'Repository repository_unavailable error.',
+      },
+    });
+  });
+
+  it('returns protected 501 JSON responses for remaining mutation stubs', async () => {
     const handler = createInvoiceApiHandler({ repositoryFactory: () => okRepository() });
 
     for (const [method, path] of [
-      ['POST', '/invoices/drafts'],
       ['PUT', '/invoices/drafts/invoice_1'],
       ['POST', '/invoices/invoice_1/finalize'],
       ['POST', '/invoices/invoice_1/void'],
@@ -240,9 +422,9 @@ describe('invoice API routes', () => {
     }
   });
 
-  it('requires an owner before returning mutation stubs', async () => {
+  it('requires an owner before returning remaining mutation stubs', async () => {
     const handler = createInvoiceApiHandler({ repositoryFactory: () => okRepository() });
-    const response = await handler(unauthorizedEvent('POST', '/invoices/drafts'));
+    const response = await handler(unauthorizedEvent('PUT', '/invoices/drafts/invoice_1'));
 
     expect(response.statusCode).toBe(401);
   });

@@ -39,8 +39,9 @@ protected `501 Not Implemented` stubs.
 ## Intentionally deferred
 
 Web app integration, login UI, hosted UI/domain, Cognito users/passwords, login-flow testing,
-invoice-number sequencing, mutation behavior, PDF/email/export behavior, VPC/NAT, app S3 buckets,
-custom domains, budgets, secrets, production deployment, and Task 016+ work remain deferred.
+invoice-number sequencing, remaining mutation behavior, PDF/email/export behavior, VPC/NAT, app S3
+buckets, custom domains, budgets, secrets, production deployment, and Task 016+ work remain
+deferred.
 
 ## Deployment boundary
 
@@ -87,6 +88,15 @@ Authenticated route verification confirmed:
 - The dev DynamoDB invoice table item count remained `0`; no invoice data was written.
 - No deploy, web integration, hosted UI/domain, production resource, additional Cognito user, or
   Task 017 work was performed.
+
+## Task 017 implementation follow-up
+
+Task 017 replaced only the authenticated `POST /invoices/drafts` stub with real draft creation
+behavior. The route creates owner-scoped draft invoices through the existing DynamoDB repository
+adapter, uses JWT claims for repository scoping, ignores request-body owner fields, generates an
+invoice ID when one is not supplied, and does not create invoice numbers, finalize, calculate,
+write line items, or integrate the web app. Other mutation routes remain protected `501
+not_implemented` stubs.
 
 ## Verification
 

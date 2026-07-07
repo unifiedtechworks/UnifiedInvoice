@@ -1,5 +1,23 @@
-import { parseInvoiceId } from '@invoice/domain';
-import { serializeInvoice } from '@invoice/invoice-domain';
+import {
+  parseInvoiceId,
+  parseIsoDate,
+  parseUtcTimestamp,
+  USD_CURRENCY_DEFINITION,
+  type DomainError,
+  type InvoiceId,
+  type IsoDateString,
+  type UtcTimestampString,
+} from '@invoice/domain';
+import {
+  createDraftInvoice,
+  createPartySnapshot,
+  parseInvoiceNotes,
+  parsePartyDisplayName,
+  serializeInvoice,
+  type CreateDraftInvoiceInput,
+  type InvoiceNotes,
+  type PartySnapshot,
+} from '@invoice/invoice-domain';
 import type {
   InvoiceLifecycleKind,
   InvoiceListQuery,
@@ -21,6 +39,8 @@ export type ApiGatewayHttpEvent = AuthenticatedEvent &
     rawPath?: string;
     pathParameters?: Readonly<Record<string, string | undefined>>;
     queryStringParameters?: Readonly<Record<string, string | undefined>> | null;
+    body?: string | null;
+    isBase64Encoded?: boolean;
     requestContext?: AuthenticatedEvent['requestContext'] &
       Readonly<{
         http?: Readonly<{
@@ -32,6 +52,8 @@ export type ApiGatewayHttpEvent = AuthenticatedEvent &
 
 export type InvoiceApiHandlerOptions = Readonly<{
   repositoryFactory?: InvoiceRepositoryFactory;
+  generateInvoiceId?: () => string;
+  now?: () => Date;
 }>;
 
 const mutationNotImplementedMessage = 'This invoice API operation is not implemented yet.';
@@ -137,11 +159,156 @@ const repositoryErrorStatus = (error: InvoiceRepositoryError): number => {
 const repositoryErrorResponse = (error: InvoiceRepositoryError): HttpResponse =>
   jsonError(repositoryErrorStatus(error), error.code, error.message);
 
+const domainErrorResponse = (error: DomainError): HttpResponse =>
+  jsonError(400, error.code, error.message);
+
 const requireOwner = (event: ApiGatewayHttpEvent): ReturnType<typeof resolveOwnerId> =>
   resolveOwnerId(event);
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+
+const parseJsonBody = (event: ApiGatewayHttpEvent): unknown | HttpResponse => {
+  if (event.body === undefined || event.body === null || event.body.trim().length === 0) {
+    return {};
+  }
+
+  if (event.isBase64Encoded === true) {
+    return jsonError(400, 'bad_request', 'Base64-encoded request bodies are not supported.');
+  }
+
+  try {
+    return JSON.parse(event.body) as unknown;
+  } catch {
+    return jsonError(400, 'bad_request', 'Request body must be valid JSON.');
+  }
+};
+
+const parseOptionalInvoiceId = (value: unknown): InvoiceId | HttpResponse => {
+  if (typeof value !== 'string') {
+    return jsonError(400, 'bad_request', 'draft.id must be a string when provided.');
+  }
+
+  const parsed = parseInvoiceId(value);
+  if (!parsed.ok) return domainErrorResponse(parsed.error);
+  return parsed.value;
+};
+
+const parseGeneratedInvoiceId = (generateInvoiceId: () => string): InvoiceId | HttpResponse => {
+  const parsed = parseInvoiceId(generateInvoiceId());
+  if (!parsed.ok) {
+    return jsonError(500, 'internal_error', 'Generated invoice id is invalid.');
+  }
+  return parsed.value;
+};
+
+const parseTimestamp = (date: Date): UtcTimestampString | HttpResponse => {
+  const parsed = parseUtcTimestamp(date.toISOString());
+  if (!parsed.ok) return domainErrorResponse(parsed.error);
+  return parsed.value;
+};
+
+const parseOptionalDate = (
+  value: unknown,
+  fieldName: 'issueDate' | 'dueDate',
+): IsoDateString | undefined | HttpResponse => {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'string') {
+    return jsonError(400, 'bad_request', `draft.${fieldName} must be a string when provided.`);
+  }
+
+  const parsed = parseIsoDate(value);
+  if (!parsed.ok) return domainErrorResponse(parsed.error);
+  return parsed.value;
+};
+
+const parseOptionalNotes = (value: unknown): InvoiceNotes | undefined | HttpResponse => {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'string') {
+    return jsonError(400, 'bad_request', 'draft.notes must be a string when provided.');
+  }
+
+  const parsed = parseInvoiceNotes(value);
+  if (!parsed.ok) return domainErrorResponse(parsed.error);
+  return parsed.value;
+};
+
+const parseOptionalCustomer = (value: unknown): PartySnapshot | undefined | HttpResponse => {
+  if (value === undefined) return undefined;
+  if (!isRecord(value)) {
+    return jsonError(400, 'bad_request', 'draft.customer must be an object when provided.');
+  }
+
+  if (typeof value.displayName !== 'string') {
+    return jsonError(400, 'bad_request', 'draft.customer.displayName must be a string.');
+  }
+
+  const displayName = parsePartyDisplayName(value.displayName);
+  if (!displayName.ok) return domainErrorResponse(displayName.error);
+
+  const customer = createPartySnapshot({ displayName: displayName.value });
+  if (!customer.ok) return domainErrorResponse(customer.error);
+  return customer.value;
+};
+
+const createGeneratedInvoiceId = (): string =>
+  `invoice_${globalThis.crypto.randomUUID().replaceAll('-', '_')}`;
+
+const parseCreateDraftInput = (
+  event: ApiGatewayHttpEvent,
+  generateInvoiceId: () => string,
+  now: () => Date,
+): CreateDraftInvoiceInput | HttpResponse => {
+  const body = parseJsonBody(event);
+  if (isHttpResponse(body)) return body;
+  if (!isRecord(body)) return jsonError(400, 'bad_request', 'Request body must be an object.');
+
+  const rawDraft = body.draft;
+  if (rawDraft !== undefined && !isRecord(rawDraft)) {
+    return jsonError(400, 'bad_request', 'draft must be an object when provided.');
+  }
+  const draft = rawDraft ?? {};
+
+  const id =
+    Object.hasOwn(draft, 'id') && draft.id !== undefined
+      ? parseOptionalInvoiceId(draft.id)
+      : parseGeneratedInvoiceId(generateInvoiceId);
+  if (isHttpResponse(id)) return id;
+
+  const timestamp = parseTimestamp(now());
+  if (isHttpResponse(timestamp)) return timestamp;
+
+  const customer = parseOptionalCustomer(draft.customer);
+  if (isHttpResponse(customer)) return customer;
+
+  const issueDate = parseOptionalDate(draft.issueDate, 'issueDate');
+  if (isHttpResponse(issueDate)) return issueDate;
+
+  const dueDate = parseOptionalDate(draft.dueDate, 'dueDate');
+  if (isHttpResponse(dueDate)) return dueDate;
+
+  const notes = parseOptionalNotes(draft.notes);
+  if (isHttpResponse(notes)) return notes;
+
+  return {
+    id,
+    currency: USD_CURRENCY_DEFINITION,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+    ...(customer === undefined ? {} : { customer }),
+    ...(issueDate === undefined ? {} : { issueDate }),
+    ...(dueDate === undefined ? {} : { dueDate }),
+    ...(notes === undefined ? {} : { notes }),
+  };
+};
+
+const isHttpResponse = (value: unknown): value is HttpResponse =>
+  isRecord(value) && typeof value.statusCode === 'number';
+
 export const createInvoiceApiHandler = ({
   repositoryFactory = createInvoiceRepository,
+  generateInvoiceId = createGeneratedInvoiceId,
+  now = () => new Date(),
 }: InvoiceApiHandlerOptions = {}) => {
   const handler = async (event: ApiGatewayHttpEvent): Promise<HttpResponse> => {
     const method = httpMethod(event);
@@ -184,8 +351,26 @@ export const createInvoiceApiHandler = ({
       });
     }
 
+    if (method === 'POST' && path === '/invoices/drafts') {
+      const owner = requireOwner(event);
+      if (!owner.ok) return owner.response;
+
+      const input = parseCreateDraftInput(event, generateInvoiceId, now);
+      if (isHttpResponse(input)) return input;
+
+      const invoice = createDraftInvoice(input);
+      if (!invoice.ok) return domainErrorResponse(invoice.error);
+
+      const result = await repositoryFactory(owner.ownerId).createDraft(invoice.value);
+      if (!result.ok) return repositoryErrorResponse(result.error);
+
+      return jsonResponse(201, {
+        invoice: serializeInvoice(result.value.invoice),
+        version: result.value.version,
+      });
+    }
+
     if (
-      (method === 'POST' && path === '/invoices/drafts') ||
       (method === 'PUT' && /^\/invoices\/drafts\/[^/]+$/u.test(path)) ||
       (method === 'POST' && /^\/invoices\/[^/]+\/finalize$/u.test(path)) ||
       (method === 'POST' && /^\/invoices\/[^/]+\/void$/u.test(path)) ||
