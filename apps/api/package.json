@@ -16,5 +16,13 @@
     "lint": "eslint .",
     "test": "vitest run --root ../.. apps/api/test",
     "build": "tsup"
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.1078.0",
+    "@aws-sdk/lib-dynamodb": "^3.1078.0",
+    "@invoice/domain": "workspace:*",
+    "@invoice/invoice-domain": "workspace:*",
+    "@invoice/invoice-repository": "workspace:*",
+    "@invoice/invoice-repository-dynamodb": "workspace:*"
   }
 }

@@ -19,13 +19,13 @@ const createTemplate = (): Readonly<{ stack: Stack; template: Template }> => {
 };
 
 describe('UnifiedInvoiceApiStack', () => {
-  it('synthesizes the low-cost health API with environment tags', () => {
+  it('synthesizes the low-cost API Lambda with environment tags', () => {
     const { stack, template } = createTemplate();
 
     expect(stack.stackName).toBe('unified-invoice-test-api');
     template.hasResourceProperties('AWS::Lambda::Function', {
       FunctionName: 'unified-invoice-test-health',
-      Handler: 'index.healthHandler',
+      Handler: 'index.apiHandler',
       Runtime: 'nodejs22.x',
       MemorySize: 128,
       Timeout: 5,
@@ -53,20 +53,45 @@ describe('UnifiedInvoiceApiStack', () => {
       Name: 'unified-invoice-test-http-api',
       ProtocolType: 'HTTP',
     });
-    template.hasResourceProperties('AWS::ApiGatewayV2::Route', {
-      RouteKey: 'GET /health',
-      AuthorizationType: 'NONE',
-    });
     template.hasResourceProperties('AWS::Logs::LogGroup', {
       LogGroupName: '/aws/lambda/unified-invoice-test-health',
       RetentionInDays: 14,
     });
     template.hasOutput('HealthApiUrl', {});
     template.hasOutput('HealthFunctionName', {});
+  });
 
+  it('keeps health public and protects only the declared invoice routes', () => {
+    const { template } = createTemplate();
     const routes = template.findResources('AWS::ApiGatewayV2::Route');
-    expect(Object.values(routes)).toHaveLength(1);
-    expect(JSON.stringify(routes)).not.toContain('/invoices');
+    const routeValues = Object.values(routes);
+    const routeKeys = routeValues.map((route) => route.Properties.RouteKey as string).sort();
+
+    expect(routeKeys).toEqual([
+      'DELETE /invoices/drafts/{id}',
+      'GET /health',
+      'GET /invoices',
+      'GET /invoices/{id}',
+      'POST /invoices/drafts',
+      'POST /invoices/{id}/finalize',
+      'POST /invoices/{id}/void',
+      'PUT /invoices/drafts/{id}',
+    ]);
+
+    const healthRoute = routeValues.find((route) => route.Properties.RouteKey === 'GET /health');
+    expect(healthRoute?.Properties.AuthorizationType).toBe('NONE');
+    expect(healthRoute?.Properties.AuthorizerId).toBeUndefined();
+
+    const invoiceRoutes = routeValues.filter((route) =>
+      String(route.Properties.RouteKey).includes('/invoices'),
+    );
+    expect(invoiceRoutes).toHaveLength(7);
+    for (const route of invoiceRoutes) {
+      expect(route.Properties.AuthorizationType).toBe('JWT');
+      expect(route.Properties.AuthorizerId).toEqual({
+        Ref: expect.stringMatching(/InvoiceJwtAuthorizer/),
+      });
+    }
   });
 
   it('creates the low-cost invoice repository table', () => {
@@ -120,7 +145,7 @@ describe('UnifiedInvoiceApiStack', () => {
     expect(JSON.stringify(policies)).not.toContain('dynamodb:*');
   });
 
-  it('creates the Cognito auth scaffold for future invoice routes', () => {
+  it('creates the Cognito auth scaffold for invoice routes', () => {
     const { template } = createTemplate();
 
     template.hasResourceProperties('AWS::Cognito::UserPool', {
@@ -191,5 +216,6 @@ describe('UnifiedInvoiceApiStack', () => {
     template.resourceCountIs('AWS::EC2::NatGateway', 0);
     template.resourceCountIs('AWS::ApiGatewayV2::DomainName', 0);
     template.resourceCountIs('AWS::S3::Bucket', 0);
+    template.resourceCountIs('AWS::Budgets::Budget', 0);
   });
 });

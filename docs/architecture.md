@@ -6,8 +6,10 @@ This repository is a TypeScript monorepo for an invoice-management platform.
 
 - `apps/mobile` contains a bare React Native app with Android as the only native verification target.
 - `apps/web` contains a React Native for Web app built with Vite.
-- `apps/api` contains the health-only TypeScript Lambda application scaffold. It currently exposes
-  no invoice routes and has no dependency on invoice domain or repository packages.
+- `apps/api` contains the TypeScript Lambda application scaffold. It keeps `GET /health` public,
+  adds authenticated invoice route handling for the serverless API, implements `GET /invoices` and
+  `GET /invoices/{id}` through the owner-scoped DynamoDB invoice repository adapter, and leaves
+  invoice mutation routes as protected `501 Not Implemented` stubs until a later task.
 - `packages/domain` contains framework-independent reusable primitives, identifiers, dates, money, quantity, rates, invoice numbers, and shared result/error types.
 - `packages/invoice-engine` contains deterministic financial invoice calculation only.
 - `packages/invoice-domain` contains framework-independent draft invoice, finalization, immutable finalized snapshot, voiding behavior, and canonical JSON-safe invoice aggregate serialization. It depends on `packages/domain` and `packages/invoice-engine` and prevents a `domain -> invoice-engine` dependency cycle.
@@ -23,12 +25,13 @@ This repository is a TypeScript monorepo for an invoice-management platform.
 - `packages/api-client` is reserved for a future client abstraction and contains no backend implementation.
 - `packages/ui` contains React Native primitive-based UI that can be consumed by Android and web.
 - `infra/cdk` contains the active AWS CDK infrastructure scaffold for the public `GET /health` HTTP
-  API, Lambda, environment-scoped DynamoDB invoice table, and Cognito auth scaffold. It packages the
-  existing `apps/api` build output, defaults to the `dev` environment through CDK context, passes
-  non-secret table/auth resource identifiers to the Lambda, grants only the table actions needed by
-  the DynamoDB repository adapter, and prepares an HTTP API JWT authorizer for future invoice
-  routes. It creates no invoice route, real user, password, hosted UI domain, S3 app bucket, VPC,
-  NAT, custom domain, budget, secret, or account-specific deployment configuration. Task 012A
-  superseded and removed the Task 010 SAM scaffold; deployment remains explicit and manual.
+  API, authenticated invoice API routes, Lambda, environment-scoped DynamoDB invoice table, and
+  Cognito auth scaffold. It packages the existing `apps/api` build output, defaults to the `dev`
+  environment through CDK context, passes non-secret table/auth resource identifiers to the Lambda,
+  grants only the table actions needed by the DynamoDB repository adapter, and attaches the Cognito
+  JWT authorizer to invoice routes while keeping `/health` public. It creates no real user,
+  password, hosted UI domain, S3 app bucket, VPC, NAT, custom domain, budget, secret, or
+  account-specific deployment configuration. Task 012A superseded and removed the Task 010 SAM
+  scaffold; deployment remains explicit and manual.
 
 Business logic must remain independent of React Native and AWS. Financial calculations must not use floating-point currency values. Invoice document lifecycle is separate from settlement, delivery, persistence, APIs, UI, PDF, email, and AWS concerns.

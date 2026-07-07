@@ -1,7 +1,8 @@
 import { resolve } from 'node:path';
 
 import { CfnOutput, Duration, RemovalPolicy, Stack, Tags, type StackProps } from 'aws-cdk-lib';
-import { CfnAuthorizer, HttpApi, HttpMethod } from 'aws-cdk-lib/aws-apigatewayv2';
+import { HttpApi, HttpMethod } from 'aws-cdk-lib/aws-apigatewayv2';
+import { HttpJwtAuthorizer } from 'aws-cdk-lib/aws-apigatewayv2-authorizers';
 import { HttpLambdaIntegration } from 'aws-cdk-lib/aws-apigatewayv2-integrations';
 import { AccountRecovery, Mfa, UserPool } from 'aws-cdk-lib/aws-cognito';
 import { AttributeType, BillingMode, Table } from 'aws-cdk-lib/aws-dynamodb';
@@ -72,7 +73,7 @@ export class UnifiedInvoiceApiStack extends Stack {
       description: 'Returns the Unified Invoice API scaffold health status',
       runtime: Runtime.NODEJS_22_X,
       architecture: Architecture.X86_64,
-      handler: 'index.healthHandler',
+      handler: 'index.apiHandler',
       code: Code.fromAsset(props.apiAssetPath ?? defaultApiAssetPath),
       memorySize: 128,
       timeout: Duration.seconds(5),
@@ -105,22 +106,39 @@ export class UnifiedInvoiceApiStack extends Stack {
       createDefaultStage: true,
     });
 
-    new CfnAuthorizer(this, 'InvoiceJwtAuthorizer', {
-      apiId: healthApi.apiId,
-      authorizerType: 'JWT',
-      identitySource: ['$request.header.Authorization'],
-      name: `${resourcePrefix}-jwt-authorizer`,
-      jwtConfiguration: {
-        audience: [userPoolClient.userPoolClientId],
-        issuer: `https://cognito-idp.${this.region}.amazonaws.com/${userPool.userPoolId}`,
+    const invoiceAuthorizer = new HttpJwtAuthorizer(
+      'InvoiceJwtAuthorizer',
+      `https://cognito-idp.${this.region}.amazonaws.com/${userPool.userPoolId}`,
+      {
+        authorizerName: `${resourcePrefix}-jwt-authorizer`,
+        jwtAudience: [userPoolClient.userPoolClientId],
       },
-    });
+    );
+
+    const apiIntegration = new HttpLambdaIntegration('HealthIntegration', healthFunction);
 
     healthApi.addRoutes({
       path: '/health',
       methods: [HttpMethod.GET],
-      integration: new HttpLambdaIntegration('HealthIntegration', healthFunction),
+      integration: apiIntegration,
     });
+
+    for (const route of [
+      { method: HttpMethod.GET, path: '/invoices' },
+      { method: HttpMethod.GET, path: '/invoices/{id}' },
+      { method: HttpMethod.POST, path: '/invoices/drafts' },
+      { method: HttpMethod.PUT, path: '/invoices/drafts/{id}' },
+      { method: HttpMethod.POST, path: '/invoices/{id}/finalize' },
+      { method: HttpMethod.POST, path: '/invoices/{id}/void' },
+      { method: HttpMethod.DELETE, path: '/invoices/drafts/{id}' },
+    ] as const) {
+      healthApi.addRoutes({
+        path: route.path,
+        methods: [route.method],
+        integration: apiIntegration,
+        authorizer: invoiceAuthorizer,
+      });
+    }
 
     new CfnOutput(this, 'HealthApiUrl', {
       description: 'Environment health endpoint',

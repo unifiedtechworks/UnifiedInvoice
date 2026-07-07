@@ -2,7 +2,7 @@
 
 ## Status
 
-Implemented and deployed to dev in Task 014B; not committed.
+Implemented, deployed to dev in Task 014B, and committed before Task 015 began.
 
 ## Objective
 
@@ -35,6 +35,9 @@ Invoice API handlers, invoice API routes, web auth integration, user registratio
 passwords, hosted UI domains, callback/logout URLs, custom domains, migrations, invoice-number
 sequencing, PDF/email/export behavior, VPC/NAT, app S3 buckets, budgets, secrets, production
 deployment, and later-task work remain deferred. `/health` remains public.
+
+Task 015 follows this scaffold by adding local authenticated invoice route wiring and read-only
+invoice handlers. It does not create users/passwords or add login/web integration.
 
 ## Verification
 

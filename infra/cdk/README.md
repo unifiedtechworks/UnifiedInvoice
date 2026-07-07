@@ -6,14 +6,15 @@ superseded and removed the Task 010 SAM scaffold so there is one active infrastr
 The current dev stack contains:
 
 - the existing `apps/api` Lambda artifact;
-- an API Gateway HTTP API with `GET /health`;
+- an API Gateway HTTP API with public `GET /health` and authenticated invoice route scaffolding;
 - a 128 MB, five-second Node.js 22 Lambda;
 - a DynamoDB invoice repository table named `unified-invoice-<environment>-invoices`;
-- a Cognito User Pool, User Pool Client, and HTTP API JWT authorizer for future invoice routes; and
+- a Cognito User Pool, User Pool Client, and HTTP API JWT authorizer attached to invoice routes;
+  and
 - an explicit CloudWatch log group with 14-day retention.
 
-It creates no VPC/NAT, custom domain, S3 bucket, budget, invoice route, secret, real user, password,
-or account-specific configuration. No deployment is performed by repository scripts.
+It creates no VPC/NAT, custom domain, S3 bucket, budget, secret, real user, password, hosted UI
+domain, or account-specific configuration. No deployment is performed by repository scripts.
 
 ## Local commands
 
@@ -26,7 +27,7 @@ pnpm --filter @invoice/infra-cdk synth
 ```
 
 The `synth` script builds `apps/api` first because the Lambda asset is `apps/api/dist` and the
-handler remains `index.healthHandler`. The default environment is `dev`; override it locally with
+handler is `index.apiHandler`. The default environment is `dev`; override it locally with
 CDK context, for example `pnpm cdk:synth -- --context environment=test`. Synthesis is local and
 does not deploy resources. Remove generated `cdk.out` and API `dist` output after verification.
 
@@ -74,12 +75,31 @@ Task 014 adds the Cognito auth resources that future invoice routes will use:
 - no client secret; and
 - HTTP API JWT authorizer named `unified-invoice-<environment>-jwt-authorizer`.
 
-The JWT authorizer is intentionally prepared but not attached to any route yet. `/health` remains
-public, and no invoice API routes exist. The Lambda receives non-secret `COGNITO_USER_POOL_ID` and
-`COGNITO_USER_POOL_CLIENT_ID` environment variables for future handler composition. CDK does not
-create users, passwords, hosted UI domains, callback URLs, logout URLs, app S3 buckets, custom
-domains, budgets, or secrets. Production should revisit MFA, account recovery, custom domains,
-auth UX, and removal policy before real users are onboarded.
+The JWT authorizer is attached to invoice routes and intentionally not attached to `/health`.
+`/health` remains public. The Lambda receives non-secret `COGNITO_USER_POOL_ID` and
+`COGNITO_USER_POOL_CLIENT_ID` environment variables for handler composition. CDK does not create
+users, passwords, hosted UI domains, callback URLs, logout URLs, app S3 buckets, custom domains,
+budgets, or secrets. Production should revisit MFA, account recovery, custom domains, auth UX, and
+removal policy before real users are onboarded.
+
+## Authenticated invoice route scaffold
+
+Task 015 adds these JWT-protected HTTP API routes:
+
+- `GET /invoices`
+- `GET /invoices/{id}`
+- `POST /invoices/drafts`
+- `PUT /invoices/drafts/{id}`
+- `POST /invoices/{id}/finalize`
+- `POST /invoices/{id}/void`
+- `DELETE /invoices/drafts/{id}`
+
+`GET /invoices` and `GET /invoices/{id}` are wired to the DynamoDB repository adapter using the
+owner ID resolved from JWT `sub`, with `username` used only as a fallback when `sub` is absent.
+Mutation routes are protected but return stable `501 Not Implemented` JSON stubs until mutation
+behavior is implemented in a later task. No web app integration, login flow, invoice-number
+sequencing service, users, passwords, hosted UI/domain, VPC/NAT, app S3 bucket, custom domain,
+budget, secret, or production deployment is included.
 
 ## Dev deployment
 
@@ -137,3 +157,6 @@ returned for the User Pool Client, and the Lambda has non-secret `COGNITO_USER_P
 `COGNITO_USER_POOL_CLIENT_ID` environment variables. `/health` remained public and returned the
 expected JSON response. No invoice routes, users, passwords, hosted UI domain, VPC/NAT, app S3
 bucket, custom domain, budget, secret, or production resource was deployed.
+
+Task 015 is a local route-scaffold task only until its CDK diff is reviewed and deployment is
+explicitly approved.

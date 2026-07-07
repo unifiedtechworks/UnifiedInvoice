@@ -3,8 +3,9 @@
 ## Status
 
 Accepted and implemented as the local Task 012A infrastructure scaffold, deployed to dev in Task
-012B, extended with the Task 013 dev DynamoDB table/IAM wiring, and extended with the Task 014
-Cognito auth scaffold.
+012B, extended with the Task 013 dev DynamoDB table/IAM wiring, extended with the Task 014 Cognito
+auth scaffold, and extended locally in Task 015 with authenticated invoice route wiring pending CDK
+diff review and explicit deploy approval.
 
 ## Context
 
@@ -20,17 +21,19 @@ Use AWS CDK in TypeScript as the active infrastructure direction. The active pac
 `@invoice/infra-cdk` under `infra/cdk`, and the Task 010 SAM scaffold is removed as an active
 deployment path.
 
-The active CDK stack intentionally keeps the API surface health-only:
+The active CDK stack keeps the health endpoint public and adds the first protected invoice API
+surface:
 
 - packages the existing `apps/api/dist` Lambda artifact;
-- uses the existing `index.healthHandler` export;
+- uses the `index.apiHandler` export so the same Lambda can route health and invoice API requests;
 - creates a Node.js 22 Lambda with 128 MB memory and a five-second timeout;
 - creates an API Gateway HTTP API route for `GET /health`;
+- creates authenticated invoice routes for list/get and future mutation operations;
 - creates a CloudWatch log group with 14-day retention;
-- creates the environment-scoped DynamoDB invoice table for future repository composition;
-- creates the environment-scoped Cognito User Pool and User Pool Client for future authenticated
-  invoice routes;
-- prepares an HTTP API JWT authorizer without attaching it to `/health`;
+- creates the environment-scoped DynamoDB invoice table used by the API repository composition;
+- creates the environment-scoped Cognito User Pool and User Pool Client used by the invoice route
+  JWT authorizer;
+- attaches the HTTP API JWT authorizer to invoice routes without attaching it to `/health`;
 - passes non-secret table/auth resource identifiers to the Lambda;
 - grants only the table-scoped DynamoDB actions required by the repository adapter;
 - tags resources with `Project=UnifiedInvoice`, `ManagedBy=CDK`, and the configured
@@ -43,10 +46,11 @@ configuration is deferred.
 
 ## Deferred
 
-Task 014 adds the dev Cognito auth scaffold only. Invoice API routes, user creation/passwords,
-hosted UI domains, custom domains, S3 deploy buckets, budget resources, VPC/NAT, production stack
-configuration, real AWS account IDs, secrets, deployment automation, invoice-number generation, and
-API composition remain later concerns.
+Task 015 adds local authenticated invoice route scaffolding and read-only repository-backed
+handlers, but deployment still requires a reviewed CDK diff and explicit approval. User
+creation/passwords, hosted UI domains, custom domains, S3 deploy buckets, budget resources,
+VPC/NAT, production stack configuration, real AWS account IDs, secrets, deployment automation,
+invoice-number generation, mutation behavior, and web integration remain later concerns.
 
 ## Consequences
 
