@@ -5,5 +5,6 @@ export default defineConfig({
   format: ['esm'],
   dts: true,
   clean: true,
+  noExternal: [/.*/],
   outExtension: () => ({ js: '.mjs' }),
 });

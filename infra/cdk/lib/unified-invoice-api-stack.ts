@@ -1,8 +1,12 @@
 import { resolve } from 'node:path';
 
 import { CfnOutput, Duration, RemovalPolicy, Stack, Tags, type StackProps } from 'aws-cdk-lib';
-import { HttpApi, HttpMethod } from 'aws-cdk-lib/aws-apigatewayv2';
-import { HttpJwtAuthorizer } from 'aws-cdk-lib/aws-apigatewayv2-authorizers';
+import {
+  CfnAuthorizer,
+  HttpApi,
+  HttpMethod,
+  type IHttpRouteAuthorizer,
+} from 'aws-cdk-lib/aws-apigatewayv2';
 import { HttpLambdaIntegration } from 'aws-cdk-lib/aws-apigatewayv2-integrations';
 import { AccountRecovery, Mfa, UserPool } from 'aws-cdk-lib/aws-cognito';
 import { AttributeType, BillingMode, Table } from 'aws-cdk-lib/aws-dynamodb';
@@ -106,14 +110,23 @@ export class UnifiedInvoiceApiStack extends Stack {
       createDefaultStage: true,
     });
 
-    const invoiceAuthorizer = new HttpJwtAuthorizer(
-      'InvoiceJwtAuthorizer',
-      `https://cognito-idp.${this.region}.amazonaws.com/${userPool.userPoolId}`,
-      {
-        authorizerName: `${resourcePrefix}-jwt-authorizer`,
-        jwtAudience: [userPoolClient.userPoolClientId],
+    const invoiceJwtAuthorizer = new CfnAuthorizer(this, 'InvoiceJwtAuthorizer', {
+      apiId: healthApi.apiId,
+      authorizerType: 'JWT',
+      identitySource: ['$request.header.Authorization'],
+      name: `${resourcePrefix}-jwt-authorizer`,
+      jwtConfiguration: {
+        audience: [userPoolClient.userPoolClientId],
+        issuer: `https://cognito-idp.${this.region}.amazonaws.com/${userPool.userPoolId}`,
       },
-    );
+    });
+
+    const invoiceAuthorizer: IHttpRouteAuthorizer = {
+      bind: () => ({
+        authorizerId: invoiceJwtAuthorizer.ref,
+        authorizationType: 'JWT',
+      }),
+    };
 
     const apiIntegration = new HttpLambdaIntegration('HealthIntegration', healthFunction);
 

@@ -2,8 +2,7 @@
 
 ## Status
 
-Implemented locally; deployment is intentionally deferred until CDK diff review and explicit
-approval.
+Implemented and deployed to dev in Task 015B; not committed.
 
 ## Objective
 
@@ -45,15 +44,37 @@ custom domains, budgets, secrets, production deployment, and Task 016+ work rema
 
 ## Deployment boundary
 
-No deployment is performed by this task unless the CDK diff is reviewed and explicitly approved.
-The expected diff is limited to authenticated invoice HTTP API routes, route authorizer
-attachments, and Lambda code/package asset changes from the new API handler wiring.
+Task 015B deployed the authenticated invoice route scaffold after CDK diff review and explicit
+approval. The deployed change was limited to authenticated invoice HTTP API routes, route
+authorizer attachments, Lambda invoke permissions for invoice routes, and Lambda code/package asset
+changes from the new API handler wiring. During deployment readiness, the API bundle was adjusted to
+include runtime workspace and AWS SDK dependencies in the Lambda artifact so deployed Lambda startup
+does not depend on package-local `node_modules`.
+
+## Task 015B dev deployment
+
+Task 015B deployed the authenticated invoice route scaffold to the existing dev stack.
+
+- Region: `us-west-2`.
+- AWS account recorded for review as `9064****2082`.
+- Stack name: `unified-invoice-dev-api`.
+- Stack outputs include `HealthApiUrl`, `HealthFunctionName`, `InvoicesTableName`, `UserPoolId`,
+  and `UserPoolClientId`.
+- The existing `GET /health` endpoint remained public and returned
+  `{"ok":true,"service":"unified-invoice-api"}`.
+- Unauthenticated requests to `GET /invoices`, `GET /invoices/{id}`, and
+  `POST /invoices/drafts` returned `401 Unauthorized` from the API Gateway JWT authorizer.
+- Mutation routes remain protected `501 Not Implemented` stubs for future authenticated testing.
+- No Cognito users or passwords were created.
+- No test invoice data was written to DynamoDB.
+- No web integration, hosted UI/domain, VPC/NAT, app S3 bucket, custom domain, budget, secret,
+  production resource, or Task 016 work was performed.
 
 ## Verification
 
 Run the focused API checks, focused CDK checks, repository-wide checks, generated-output cleanup,
-read-only AWS identity check, CDK diff, and final Git inspection listed in the Task 015 request.
-Stop after the CDK diff and wait for deployment approval.
+read-only AWS identity check, CDK diff, final Git inspection, and post-deploy route checks listed
+in the Task 015B request.
 
 ## Proposed commit message
 

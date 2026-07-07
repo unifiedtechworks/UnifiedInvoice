@@ -158,5 +158,11 @@ returned for the User Pool Client, and the Lambda has non-secret `COGNITO_USER_P
 expected JSON response. No invoice routes, users, passwords, hosted UI domain, VPC/NAT, app S3
 bucket, custom domain, budget, secret, or production resource was deployed.
 
-Task 015 is a local route-scaffold task only until its CDK diff is reviewed and deployment is
-explicitly approved.
+Task 015B deployed the authenticated invoice route scaffold to the same dev stack in `us-west-2`
+for masked account `9064****2082`. The deployment added the protected invoice HTTP API routes,
+kept `/health` public, and adjusted the API Lambda bundle so runtime workspace and AWS SDK
+dependencies are included in the Lambda artifact. Post-deploy verification confirmed `GET /health`
+returned `{"ok":true,"service":"unified-invoice-api"}` and unauthenticated requests to
+`GET /invoices`, `GET /invoices/{id}`, and `POST /invoices/drafts` returned `401 Unauthorized`.
+No users, passwords, test invoice data, web integration, hosted UI/domain, VPC/NAT, app S3 bucket,
+custom domain, budget, secret, production resource, or Task 016 work was created.
