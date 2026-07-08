@@ -69,13 +69,15 @@ path ID or JWT-derived owner.
 
 No invoice-number generation, finalization, calculation, line-item editing, payment behavior,
 PDF/email/export behavior, web integration, login UI, hosted UI/domain, production deployment,
-custom domain, VPC/NAT, app S3 bucket, budget, secret, or Task 019 work is included.
+custom domain, VPC/NAT, app S3 bucket, budget, secret, or Task 019 work was included in Task 018.
 
-The following routes remain authenticated `501 not_implemented` stubs:
+After Task 019, the following routes remain authenticated `501 not_implemented` stubs:
 
 - `POST /invoices/{id}/finalize`
 - `POST /invoices/{id}/void`
-- `DELETE /invoices/drafts/{id}`
+
+Task 019 replaced the `DELETE /invoices/drafts/{id}` stub with authenticated owner-scoped draft
+discard behavior.
 
 ## Deployment boundary
 

@@ -336,6 +336,10 @@ type DraftUpdatePatch = Readonly<{
   hasNotes: boolean;
 }>;
 
+type DraftDeleteInput = Readonly<{
+  expectedVersion: InvoiceRecordVersion;
+}>;
+
 const parseUpdateDraftInput = (event: ApiGatewayHttpEvent): DraftUpdatePatch | HttpResponse => {
   const body = parseJsonBody(event);
   if (isHttpResponse(body)) return body;
@@ -389,6 +393,28 @@ const parseUpdateDraftInput = (event: ApiGatewayHttpEvent): DraftUpdatePatch | H
     hasDueDate,
     hasNotes,
   };
+};
+
+const allowedDeleteDraftFields = new Set(['expectedVersion', 'id', 'ownerId']);
+
+const parseDeleteDraftInput = (event: ApiGatewayHttpEvent): DraftDeleteInput | HttpResponse => {
+  const body = parseJsonBody(event);
+  if (isHttpResponse(body)) return body;
+  if (!isRecord(body)) return jsonError(400, 'bad_request', 'Request body must be an object.');
+
+  for (const key of Object.keys(body)) {
+    if (!allowedDeleteDraftFields.has(key)) {
+      return jsonError(400, 'bad_request', `${key} is not supported for draft deletes.`);
+    }
+  }
+
+  if (typeof body.expectedVersion !== 'string') {
+    return jsonError(400, 'bad_request', 'expectedVersion is required.');
+  }
+  const expectedVersion = parseInvoiceRecordVersion(body.expectedVersion);
+  if (!expectedVersion.ok) return repositoryErrorResponse(expectedVersion.error);
+
+  return { expectedVersion: expectedVersion.value };
 };
 
 const applyDraftUpdatePatch = (
@@ -532,10 +558,30 @@ export const createInvoiceApiHandler = ({
       });
     }
 
+    if (method === 'DELETE' && /^\/invoices\/drafts\/[^/]+$/u.test(path)) {
+      const owner = requireOwner(event);
+      if (!owner.ok) return owner.response;
+
+      const rawId = pathDraftInvoiceId(event);
+      const parsedId = rawId === undefined ? undefined : parseInvoiceId(rawId);
+      if (parsedId === undefined || !parsedId.ok) {
+        return jsonError(400, 'bad_request', 'Invoice id is invalid.');
+      }
+
+      const input = parseDeleteDraftInput(event);
+      if (isHttpResponse(input)) return input;
+
+      const result = await repositoryFactory(owner.ownerId).discardDraft(parsedId.value, {
+        expectedVersion: input.expectedVersion,
+      });
+      if (!result.ok) return repositoryErrorResponse(result.error);
+
+      return jsonResponse(200, { id: result.value.id });
+    }
+
     if (
       (method === 'POST' && /^\/invoices\/[^/]+\/finalize$/u.test(path)) ||
-      (method === 'POST' && /^\/invoices\/[^/]+\/void$/u.test(path)) ||
-      (method === 'DELETE' && /^\/invoices\/drafts\/[^/]+$/u.test(path))
+      (method === 'POST' && /^\/invoices\/[^/]+\/void$/u.test(path))
     ) {
       const owner = requireOwner(event);
       if (!owner.ok) return owner.response;

@@ -104,6 +104,11 @@ owner-scoped draft, applies supported customer/date/notes updates through invoic
 and persists through `repository.updateDraft`. Finalize, void, and draft delete routes remain
 protected `501 not_implemented` stubs.
 
+Task 019 replaced only the authenticated `DELETE /invoices/drafts/{id}` stub with real draft
+discard behavior. The route uses the path invoice ID, requires `expectedVersion`, scopes the
+repository by the JWT-derived owner, ignores request-body ID/owner fields, and persists through
+`repository.discardDraft`. Finalize and void routes remain protected `501 not_implemented` stubs.
+
 ## Verification
 
 Run the focused API checks, focused CDK checks, repository-wide checks, generated-output cleanup,

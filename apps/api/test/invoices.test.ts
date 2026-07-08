@@ -71,7 +71,7 @@ const okRepository = (overrides: Partial<InvoiceRepository> = {}): InvoiceReposi
         nextCursor: 'offset:1',
       }),
     ),
-    discardDraft: vi.fn(),
+    discardDraft: vi.fn(async (id) => repoOk({ id })),
     ...overrides,
   }) as InvoiceRepository;
 
@@ -653,13 +653,199 @@ describe('invoice API routes', () => {
     });
   });
 
+  it('deletes authenticated draft invoices using the path id and expected version', async () => {
+    const repository = okRepository();
+    const repositoryFactory = vi.fn(() => repository);
+    const handler = createInvoiceApiHandler({ repositoryFactory });
+
+    const response = await handler(
+      event('DELETE', '/invoices/drafts/invoice_1', {
+        body: JSON.stringify({
+          id: 'ignored_body_id',
+          ownerId: 'body-owner-ignored',
+          expectedVersion: 'v1',
+        }),
+      }),
+    );
+
+    expect(repositoryFactory).toHaveBeenCalledWith('owner-123');
+    expect(repository.discardDraft).toHaveBeenCalledTimes(1);
+    expect(repository.discardDraft).toHaveBeenCalledWith(assertInvoiceId('invoice_1'), {
+      expectedVersion: assertInvoiceRecordVersion('v1'),
+    });
+    expect(response.statusCode).toBe(200);
+    expect(responseBody(response)).toEqual({ id: 'invoice_1' });
+  });
+
+  it('requires an owner for DELETE /invoices/drafts/{id}', async () => {
+    const handler = createInvoiceApiHandler({ repositoryFactory: () => okRepository() });
+    const response = await handler(unauthorizedEvent('DELETE', '/invoices/drafts/invoice_1'));
+
+    expect(response.statusCode).toBe(401);
+  });
+
+  it('maps malformed draft delete JSON to 400 before calling the repository', async () => {
+    const repository = okRepository();
+    const handler = createInvoiceApiHandler({ repositoryFactory: () => repository });
+
+    const response = await handler(
+      event('DELETE', '/invoices/drafts/invoice_1', { body: '{"expectedVersion":' }),
+    );
+
+    expect(response.statusCode).toBe(400);
+    expect(repository.discardDraft).not.toHaveBeenCalled();
+  });
+
+  it('requires expectedVersion for draft deletes', async () => {
+    const repository = okRepository();
+    const handler = createInvoiceApiHandler({ repositoryFactory: () => repository });
+
+    const response = await handler(
+      event('DELETE', '/invoices/drafts/invoice_1', { body: JSON.stringify({}) }),
+    );
+
+    expect(response.statusCode).toBe(400);
+    expect(repository.discardDraft).not.toHaveBeenCalled();
+  });
+
+  it('validates expectedVersion for draft deletes', async () => {
+    const repository = okRepository();
+    const handler = createInvoiceApiHandler({ repositoryFactory: () => repository });
+
+    const response = await handler(
+      event('DELETE', '/invoices/drafts/invoice_1', {
+        body: JSON.stringify({ expectedVersion: 'not valid' }),
+      }),
+    );
+
+    expect(response.statusCode).toBe(400);
+    expect(responseBody(response)).toEqual({
+      error: {
+        code: 'invalid_invoice_record_version',
+        message:
+          'Invoice record version must be a non-empty opaque string of at most 128 characters with no whitespace or ASCII control characters.',
+      },
+    });
+    expect(repository.discardDraft).not.toHaveBeenCalled();
+  });
+
+  it('maps invalid draft delete invoice IDs to 400', async () => {
+    const repository = okRepository();
+    const handler = createInvoiceApiHandler({ repositoryFactory: () => repository });
+
+    const response = await handler(
+      event('DELETE', '/invoices/drafts/not valid', {
+        body: JSON.stringify({ expectedVersion: 'v1' }),
+      }),
+    );
+
+    expect(response.statusCode).toBe(400);
+    expect(repository.discardDraft).not.toHaveBeenCalled();
+  });
+
+  it('maps unsupported draft delete fields to 400', async () => {
+    const repository = okRepository();
+    const handler = createInvoiceApiHandler({ repositoryFactory: () => repository });
+
+    const response = await handler(
+      event('DELETE', '/invoices/drafts/invoice_1', {
+        body: JSON.stringify({ expectedVersion: 'v1', draft: {} }),
+      }),
+    );
+
+    expect(response.statusCode).toBe(400);
+    expect(repository.discardDraft).not.toHaveBeenCalled();
+  });
+
+  it('maps non-object draft delete bodies to 400', async () => {
+    const repository = okRepository();
+    const handler = createInvoiceApiHandler({ repositoryFactory: () => repository });
+
+    const response = await handler(
+      event('DELETE', '/invoices/drafts/invoice_1', {
+        body: JSON.stringify(['not', 'an', 'object']),
+      }),
+    );
+
+    expect(response.statusCode).toBe(400);
+    expect(repository.discardDraft).not.toHaveBeenCalled();
+  });
+
+  it('maps missing draft invoices to 404 for deletes', async () => {
+    const repository = okRepository({
+      discardDraft: vi.fn(
+        async (): Promise<InvoiceRepositoryResult<never>> => repoErr(error('invoice_not_found')),
+      ),
+    });
+    const handler = createInvoiceApiHandler({ repositoryFactory: () => repository });
+
+    const response = await handler(
+      event('DELETE', '/invoices/drafts/invoice_1', {
+        body: JSON.stringify({ expectedVersion: 'v1' }),
+      }),
+    );
+
+    expect(response.statusCode).toBe(404);
+  });
+
+  it('maps finalized or voided invoice conflicts to 409 for deletes', async () => {
+    const repository = okRepository({
+      discardDraft: vi.fn(
+        async (): Promise<InvoiceRepositoryResult<never>> => repoErr(error('invoice_conflict')),
+      ),
+    });
+    const handler = createInvoiceApiHandler({ repositoryFactory: () => repository });
+
+    const response = await handler(
+      event('DELETE', '/invoices/drafts/invoice_1', {
+        body: JSON.stringify({ expectedVersion: 'v1' }),
+      }),
+    );
+
+    expect(response.statusCode).toBe(409);
+  });
+
+  it('maps stale expected versions to 409 for deletes', async () => {
+    const repository = okRepository({
+      discardDraft: vi.fn(
+        async (): Promise<InvoiceRepositoryResult<never>> => repoErr(error('invoice_conflict')),
+      ),
+    });
+    const handler = createInvoiceApiHandler({ repositoryFactory: () => repository });
+
+    const response = await handler(
+      event('DELETE', '/invoices/drafts/invoice_1', {
+        body: JSON.stringify({ expectedVersion: 'stale-v1' }),
+      }),
+    );
+
+    expect(response.statusCode).toBe(409);
+  });
+
+  it('maps repository unavailability to 503 for deletes', async () => {
+    const repository = okRepository({
+      discardDraft: vi.fn(
+        async (): Promise<InvoiceRepositoryResult<never>> =>
+          repoErr(error('repository_unavailable')),
+      ),
+    });
+    const handler = createInvoiceApiHandler({ repositoryFactory: () => repository });
+
+    const response = await handler(
+      event('DELETE', '/invoices/drafts/invoice_1', {
+        body: JSON.stringify({ expectedVersion: 'v1' }),
+      }),
+    );
+
+    expect(response.statusCode).toBe(503);
+  });
+
   it('returns protected 501 JSON responses for remaining mutation stubs', async () => {
     const handler = createInvoiceApiHandler({ repositoryFactory: () => okRepository() });
 
     for (const [method, path] of [
       ['POST', '/invoices/invoice_1/finalize'],
       ['POST', '/invoices/invoice_1/void'],
-      ['DELETE', '/invoices/drafts/invoice_1'],
     ] as const) {
       const response = await handler(event(method, path));
       expect(response.statusCode).toBe(501);
