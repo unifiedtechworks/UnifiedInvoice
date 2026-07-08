@@ -175,3 +175,12 @@ the protected mutation stubs returned `501 not_implemented`. The dev DynamoDB in
 count remained `0`. No deployment, additional users, passwords or tokens in files, test invoice
 data, web integration, hosted UI/domain, VPC/NAT, app S3 bucket, custom domain, budget, secret,
 production resource, or Task 017 work was performed.
+
+Task 017B deployed the Task 017 draft creation Lambda code change to the same dev stack after CDK
+diff review confirmed a Lambda code asset change only. Verification confirmed `/health` remained
+public, unauthenticated draft creation was rejected, authenticated `POST /invoices/drafts` created
+one dev verification draft, authenticated list/get returned that draft, and the remaining mutation
+routes still returned `501 not_implemented`. DynamoDB read-only count returned `1`, matching the
+one dev verification draft left in dev. No additional Cognito users, direct DynamoDB writes, new
+routes, VPC/NAT, app S3 bucket, custom domain, budget, secret, production resource, or Task 018
+work was performed.
