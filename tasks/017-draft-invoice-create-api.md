@@ -2,8 +2,7 @@
 
 ## Status
 
-Implemented locally; ready for review after verification. No deployment or commit was performed by
-this task.
+Implemented, deployed to dev in Task 017B, and committed before Task 018 began.
 
 ## Objective
 
@@ -78,9 +77,16 @@ The following routes remain authenticated `501 not_implemented` stubs:
 
 ## Deployment boundary
 
-No deployment was performed in Task 017. The next task should either deploy and verify draft
-creation in dev after CDK diff review, or continue locally with draft update behavior if deployment
-is deferred.
+No deployment was performed in Task 017. Task 017B later deployed and verified draft creation in
+dev after CDK diff review.
+
+## Task 018 follow-up
+
+Task 018 implements authenticated `PUT /invoices/drafts/{id}` locally after Task 017B was
+committed. Draft updates require `expectedVersion`, use the path invoice ID, ignore request-body
+owner and ID fields, and keep invoice-number generation/finalization/calculation deferred.
+Finalize, void, and draft delete routes remain protected `501 not_implemented` stubs. Task 018
+does not deploy the new update behavior without later explicit deploy approval.
 
 ## Verification
 

@@ -98,6 +98,12 @@ invoice ID when one is not supplied, and does not create invoice numbers, finali
 write line items, or integrate the web app. Other mutation routes remain protected `501
 not_implemented` stubs.
 
+Task 018 replaced only the authenticated `PUT /invoices/drafts/{id}` stub with real draft update
+behavior. The route uses the path invoice ID, requires `expectedVersion`, loads the existing
+owner-scoped draft, applies supported customer/date/notes updates through invoice-domain functions,
+and persists through `repository.updateDraft`. Finalize, void, and draft delete routes remain
+protected `501 not_implemented` stubs.
+
 ## Verification
 
 Run the focused API checks, focused CDK checks, repository-wide checks, generated-output cleanup,

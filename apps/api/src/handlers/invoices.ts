@@ -14,7 +14,11 @@ import {
   parseInvoiceNotes,
   parsePartyDisplayName,
   serializeInvoice,
+  setDraftInvoiceDates,
+  setDraftInvoiceParties,
+  setDraftInvoiceText,
   type CreateDraftInvoiceInput,
+  type DraftInvoice,
   type InvoiceNotes,
   type PartySnapshot,
 } from '@invoice/invoice-domain';
@@ -23,8 +27,10 @@ import type {
   InvoiceListQuery,
   InvoiceListSortBy,
   InvoiceListSortDirection,
+  InvoiceRecordVersion,
   InvoiceRepositoryError,
 } from '@invoice/invoice-repository';
+import { parseInvoiceRecordVersion } from '@invoice/invoice-repository';
 
 import { resolveOwnerId, type AuthenticatedEvent } from '../auth/owner';
 import { jsonError, jsonResponse, type HttpResponse } from '../http/response';
@@ -77,6 +83,13 @@ const pathInvoiceId = (event: ApiGatewayHttpEvent): string | undefined => {
   const parameterId = event.pathParameters?.id;
   if (parameterId !== undefined) return parameterId;
   const match = /^\/invoices\/([^/]+)(?:\/(?:finalize|void))?$/u.exec(requestPath(event));
+  return match?.[1];
+};
+
+const pathDraftInvoiceId = (event: ApiGatewayHttpEvent): string | undefined => {
+  const parameterId = event.pathParameters?.id;
+  if (parameterId !== undefined) return parameterId;
+  const match = /^\/invoices\/drafts\/([^/]+)$/u.exec(requestPath(event));
   return match?.[1];
 };
 
@@ -302,6 +315,117 @@ const parseCreateDraftInput = (
   };
 };
 
+const allowedUpdateDraftFields = new Set([
+  'customer',
+  'dueDate',
+  'id',
+  'issueDate',
+  'notes',
+  'ownerId',
+]);
+
+type DraftUpdatePatch = Readonly<{
+  expectedVersion: InvoiceRecordVersion;
+  customer?: PartySnapshot;
+  issueDate?: IsoDateString;
+  dueDate?: IsoDateString;
+  notes?: InvoiceNotes;
+  hasCustomer: boolean;
+  hasIssueDate: boolean;
+  hasDueDate: boolean;
+  hasNotes: boolean;
+}>;
+
+const parseUpdateDraftInput = (event: ApiGatewayHttpEvent): DraftUpdatePatch | HttpResponse => {
+  const body = parseJsonBody(event);
+  if (isHttpResponse(body)) return body;
+  if (!isRecord(body)) return jsonError(400, 'bad_request', 'Request body must be an object.');
+
+  if (typeof body.expectedVersion !== 'string') {
+    return jsonError(400, 'bad_request', 'expectedVersion is required.');
+  }
+  const expectedVersion = parseInvoiceRecordVersion(body.expectedVersion);
+  if (!expectedVersion.ok) return repositoryErrorResponse(expectedVersion.error);
+
+  if (!isRecord(body.draft)) {
+    return jsonError(400, 'bad_request', 'draft must be an object.');
+  }
+
+  for (const key of Object.keys(body.draft)) {
+    if (!allowedUpdateDraftFields.has(key)) {
+      return jsonError(400, 'bad_request', `draft.${key} is not supported for draft updates.`);
+    }
+  }
+
+  const hasCustomer = Object.hasOwn(body.draft, 'customer');
+  const hasIssueDate = Object.hasOwn(body.draft, 'issueDate');
+  const hasDueDate = Object.hasOwn(body.draft, 'dueDate');
+  const hasNotes = Object.hasOwn(body.draft, 'notes');
+
+  if (!hasCustomer && !hasIssueDate && !hasDueDate && !hasNotes) {
+    return jsonError(400, 'bad_request', 'At least one supported draft field is required.');
+  }
+
+  const customer = hasCustomer ? parseOptionalCustomer(body.draft.customer) : undefined;
+  if (isHttpResponse(customer)) return customer;
+
+  const issueDate = hasIssueDate ? parseOptionalDate(body.draft.issueDate, 'issueDate') : undefined;
+  if (isHttpResponse(issueDate)) return issueDate;
+
+  const dueDate = hasDueDate ? parseOptionalDate(body.draft.dueDate, 'dueDate') : undefined;
+  if (isHttpResponse(dueDate)) return dueDate;
+
+  const notes = hasNotes ? parseOptionalNotes(body.draft.notes) : undefined;
+  if (isHttpResponse(notes)) return notes;
+
+  return {
+    expectedVersion: expectedVersion.value,
+    ...(customer === undefined ? {} : { customer }),
+    ...(issueDate === undefined ? {} : { issueDate }),
+    ...(dueDate === undefined ? {} : { dueDate }),
+    ...(notes === undefined ? {} : { notes }),
+    hasCustomer,
+    hasIssueDate,
+    hasDueDate,
+    hasNotes,
+  };
+};
+
+const applyDraftUpdatePatch = (
+  draft: DraftInvoice,
+  patch: DraftUpdatePatch,
+  updatedAt: UtcTimestampString,
+): DraftInvoice | HttpResponse => {
+  let current = draft;
+
+  if (patch.hasCustomer && patch.customer !== undefined) {
+    const updated = setDraftInvoiceParties(current, { customer: patch.customer }, updatedAt);
+    if (!updated.ok) return domainErrorResponse(updated.error);
+    current = updated.value;
+  }
+
+  if (patch.hasIssueDate || patch.hasDueDate) {
+    const updated = setDraftInvoiceDates(
+      current,
+      {
+        ...(patch.hasIssueDate ? { issueDate: patch.issueDate } : {}),
+        ...(patch.hasDueDate ? { dueDate: patch.dueDate } : {}),
+      },
+      updatedAt,
+    );
+    if (!updated.ok) return domainErrorResponse(updated.error);
+    current = updated.value;
+  }
+
+  if (patch.hasNotes && patch.notes !== undefined) {
+    const updated = setDraftInvoiceText(current, { notes: patch.notes }, updatedAt);
+    if (!updated.ok) return domainErrorResponse(updated.error);
+    current = updated.value;
+  }
+
+  return current;
+};
+
 const isHttpResponse = (value: unknown): value is HttpResponse =>
   isRecord(value) && typeof value.statusCode === 'number';
 
@@ -370,8 +494,45 @@ export const createInvoiceApiHandler = ({
       });
     }
 
+    if (method === 'PUT' && /^\/invoices\/drafts\/[^/]+$/u.test(path)) {
+      const owner = requireOwner(event);
+      if (!owner.ok) return owner.response;
+
+      const rawId = pathDraftInvoiceId(event);
+      const parsedId = rawId === undefined ? undefined : parseInvoiceId(rawId);
+      if (parsedId === undefined || !parsedId.ok) {
+        return jsonError(400, 'bad_request', 'Invoice id is invalid.');
+      }
+
+      const patch = parseUpdateDraftInput(event);
+      if (isHttpResponse(patch)) return patch;
+
+      const repository = repositoryFactory(owner.ownerId);
+      const existing = await repository.getById(parsedId.value);
+      if (!existing.ok) return repositoryErrorResponse(existing.error);
+
+      if (existing.value.invoice.kind !== 'draft') {
+        return jsonError(409, 'invoice_conflict', 'Only draft invoices can be updated.');
+      }
+
+      const timestamp = parseTimestamp(now());
+      if (isHttpResponse(timestamp)) return timestamp;
+
+      const updatedDraft = applyDraftUpdatePatch(existing.value.invoice, patch, timestamp);
+      if (isHttpResponse(updatedDraft)) return updatedDraft;
+
+      const result = await repository.updateDraft(updatedDraft, {
+        expectedVersion: patch.expectedVersion,
+      });
+      if (!result.ok) return repositoryErrorResponse(result.error);
+
+      return jsonResponse(200, {
+        invoice: serializeInvoice(result.value.invoice),
+        version: result.value.version,
+      });
+    }
+
     if (
-      (method === 'PUT' && /^\/invoices\/drafts\/[^/]+$/u.test(path)) ||
       (method === 'POST' && /^\/invoices\/[^/]+\/finalize$/u.test(path)) ||
       (method === 'POST' && /^\/invoices\/[^/]+\/void$/u.test(path)) ||
       (method === 'DELETE' && /^\/invoices\/drafts\/[^/]+$/u.test(path))
