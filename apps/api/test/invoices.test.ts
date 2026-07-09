@@ -1,5 +1,22 @@
-import { assertInvoiceId, type UtcTimestampString } from '@invoice/domain';
-import type { DraftInvoice, Invoice } from '@invoice/invoice-domain';
+import {
+  assertInvoiceId,
+  assertInvoiceLineItemId,
+  assertQuantity,
+  parseMoneyFromDecimal,
+  USD_CURRENCY_DEFINITION,
+  type IsoDateString,
+  type UtcTimestampString,
+} from '@invoice/domain';
+import {
+  addDraftInvoiceLine,
+  createDraftInvoice,
+  createPartySnapshot,
+  parseInvoiceLineDescription,
+  parsePartyDisplayName,
+  type DraftInvoice,
+  type FinalizedInvoice,
+  type Invoice,
+} from '@invoice/invoice-domain';
 import type { InvoiceRepository, InvoiceRepositoryResult } from '@invoice/invoice-repository';
 import {
   assertInvoiceRecordVersion,
@@ -50,11 +67,62 @@ const finalizedInvoice = Object.freeze({
   kind: 'finalized',
 }) as unknown as Invoice;
 
+const party = (displayName: string) => {
+  const parsedName = parsePartyDisplayName(displayName);
+  if (!parsedName.ok) throw new Error(`Expected party display name ${displayName}.`);
+  const snapshot = createPartySnapshot({ displayName: parsedName.value });
+  if (!snapshot.ok) throw new Error(`Expected party snapshot ${displayName}.`);
+  return snapshot.value;
+};
+
+const lineDescription = (value: string) => {
+  const parsed = parseInvoiceLineDescription(value);
+  if (!parsed.ok) throw new Error(`Expected invoice line description ${value}.`);
+  return parsed.value;
+};
+
+const money = (value: string) => {
+  const parsed = parseMoneyFromDecimal(value, USD_CURRENCY_DEFINITION);
+  if (!parsed.ok) throw new Error(`Expected money ${value}.`);
+  return parsed.value;
+};
+
+const finalizableDraftInvoice = (() => {
+  const createdAt = '2026-01-01T00:00:00.000Z' as UtcTimestampString;
+  const draft = createDraftInvoice({
+    id: assertInvoiceId('invoice_1'),
+    business: party('Unified Tech Works'),
+    customer: party('Acme Co'),
+    issueDate: '2026-01-02' as IsoDateString,
+    dueDate: '2026-01-16' as IsoDateString,
+    currency: USD_CURRENCY_DEFINITION,
+    createdAt,
+    updatedAt: createdAt,
+  });
+  if (!draft.ok) throw new Error('Expected finalizable draft fixture.');
+
+  const withLine = addDraftInvoiceLine(
+    draft.value,
+    {
+      id: assertInvoiceLineItemId('line_1'),
+      position: 0,
+      description: lineDescription('Consulting services'),
+      quantity: assertQuantity('1'),
+      unitPrice: money('10.00'),
+    },
+    createdAt,
+  );
+  if (!withLine.ok) throw new Error('Expected finalizable draft line fixture.');
+  return withLine.value;
+})();
+
 const okRepository = (overrides: Partial<InvoiceRepository> = {}): InvoiceRepository =>
   ({
     createDraft: vi.fn(async (invoice: DraftInvoice) => repoOk({ invoice, version: 'v-created' })),
     updateDraft: vi.fn(async (invoice: DraftInvoice) => repoOk({ invoice, version: 'v-updated' })),
-    saveFinalized: vi.fn(),
+    saveFinalized: vi.fn(async (invoice: FinalizedInvoice) =>
+      repoOk({ invoice, version: 'v-finalized' }),
+    ),
     saveVoided: vi.fn(),
     getById: vi.fn(async () => repoOk({ invoice: draftInvoice, version: 'v1' })),
     list: vi.fn(async () =>
@@ -840,27 +908,250 @@ describe('invoice API routes', () => {
     expect(response.statusCode).toBe(503);
   });
 
-  it('returns protected 501 JSON responses for remaining mutation stubs', async () => {
+  it('finalizes authenticated draft invoices using the path id and expected version', async () => {
+    const repository = okRepository({
+      getById: vi.fn(async () =>
+        repoOk({
+          invoice: finalizableDraftInvoice,
+          version: assertInvoiceRecordVersion('v1'),
+        }),
+      ),
+    });
+    const repositoryFactory = vi.fn(() => repository);
+    const handler = createInvoiceApiHandler({ repositoryFactory, ...deterministicOptions });
+
+    const response = await handler(
+      event('POST', '/invoices/invoice_1/finalize', {
+        body: JSON.stringify({
+          id: 'ignored_body_id',
+          ownerId: 'body-owner-ignored',
+          totals: { ignored: true },
+          expectedVersion: 'v1',
+          invoiceNumber: 'INV-020',
+          finalizedAt: '2026-01-02T03:04:05.000Z',
+        }),
+      }),
+    );
+
+    expect(repositoryFactory).toHaveBeenCalledWith('owner-123');
+    expect(repository.getById).toHaveBeenCalledWith(assertInvoiceId('invoice_1'));
+    expect(repository.saveFinalized).toHaveBeenCalledTimes(1);
+    expect(repository.saveFinalized).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'finalized',
+        id: assertInvoiceId('invoice_1'),
+        invoiceNumber: 'INV-020',
+        finalizedAt: '2026-01-02T03:04:05.000Z',
+        updatedAt: '2026-01-02T03:04:05.000Z',
+      }),
+      { expectedVersion: assertInvoiceRecordVersion('v1') },
+    );
+    expect(response.statusCode).toBe(200);
+    expect(responseBody(response)).toMatchObject({
+      invoice: {
+        schemaVersion: 1,
+        kind: 'finalized',
+        id: 'invoice_1',
+        invoiceNumber: 'INV-020',
+        lines: [{ id: 'line_1', totalAmount: { currency: 'USD', minorUnits: '1000' } }],
+        totals: { grandTotal: { currency: 'USD', minorUnits: '1000' } },
+        finalizedAt: '2026-01-02T03:04:05.000Z',
+      },
+      version: 'v-finalized',
+    });
+  });
+
+  it('defaults finalizedAt to the handler clock when finalizing', async () => {
+    const repository = okRepository({
+      getById: vi.fn(async () =>
+        repoOk({ invoice: finalizableDraftInvoice, version: assertInvoiceRecordVersion('v1') }),
+      ),
+    });
+    const handler = createInvoiceApiHandler({
+      repositoryFactory: () => repository,
+      ...deterministicOptions,
+    });
+
+    const response = await handler(
+      event('POST', '/invoices/invoice_1/finalize', {
+        body: JSON.stringify({ expectedVersion: 'v1', invoiceNumber: 'INV-021' }),
+      }),
+    );
+
+    expect(response.statusCode).toBe(200);
+    expect(repository.saveFinalized).toHaveBeenCalledWith(
+      expect.objectContaining({ finalizedAt: '2026-01-02T03:04:05.000Z' }),
+      { expectedVersion: assertInvoiceRecordVersion('v1') },
+    );
+  });
+
+  it('requires an owner for POST /invoices/{id}/finalize', async () => {
+    const handler = createInvoiceApiHandler({ repositoryFactory: () => okRepository() });
+    const response = await handler(unauthorizedEvent('POST', '/invoices/invoice_1/finalize'));
+
+    expect(response.statusCode).toBe(401);
+  });
+
+  it.each([
+    ['malformed JSON', '{"expectedVersion":', 'bad_request'],
+    ['non-object body', JSON.stringify(['not', 'an', 'object']), 'bad_request'],
+    ['missing expectedVersion', JSON.stringify({ invoiceNumber: 'INV-020' }), 'bad_request'],
+    [
+      'invalid expectedVersion',
+      JSON.stringify({ expectedVersion: 'not valid', invoiceNumber: 'INV-020' }),
+      'invalid_invoice_record_version',
+    ],
+    ['missing invoiceNumber', JSON.stringify({ expectedVersion: 'v1' }), 'bad_request'],
+    [
+      'invalid invoiceNumber',
+      JSON.stringify({ expectedVersion: 'v1', invoiceNumber: '!invalid' }),
+      'invalid_invoice_number',
+    ],
+    [
+      'invalid finalizedAt',
+      JSON.stringify({
+        expectedVersion: 'v1',
+        invoiceNumber: 'INV-020',
+        finalizedAt: 'not-a-timestamp',
+      }),
+      'invalid_timestamp',
+    ],
+    [
+      'unsupported body field',
+      JSON.stringify({ expectedVersion: 'v1', invoiceNumber: 'INV-020', payments: [] }),
+      'bad_request',
+    ],
+  ])('maps %s finalize input to 400 before loading the invoice', async (_label, body, code) => {
+    const repository = okRepository();
+    const handler = createInvoiceApiHandler({ repositoryFactory: () => repository });
+
+    const response = await handler(event('POST', '/invoices/invoice_1/finalize', { body }));
+
+    expect(response.statusCode).toBe(400);
+    expect(responseBody(response)).toMatchObject({ error: { code } });
+    expect(repository.getById).not.toHaveBeenCalled();
+    expect(repository.saveFinalized).not.toHaveBeenCalled();
+  });
+
+  it('maps invalid finalize invoice IDs to 400', async () => {
+    const repository = okRepository();
+    const handler = createInvoiceApiHandler({ repositoryFactory: () => repository });
+
+    const response = await handler(
+      event('POST', '/invoices/not valid/finalize', {
+        body: JSON.stringify({ expectedVersion: 'v1', invoiceNumber: 'INV-020' }),
+      }),
+    );
+
+    expect(response.statusCode).toBe(400);
+    expect(repository.getById).not.toHaveBeenCalled();
+    expect(repository.saveFinalized).not.toHaveBeenCalled();
+  });
+
+  it('maps missing invoices to 404 for finalization', async () => {
+    const repository = okRepository({
+      getById: vi.fn(
+        async (): Promise<InvoiceRepositoryResult<never>> => repoErr(error('invoice_not_found')),
+      ),
+    });
+    const handler = createInvoiceApiHandler({ repositoryFactory: () => repository });
+
+    const response = await handler(
+      event('POST', '/invoices/invoice_1/finalize', {
+        body: JSON.stringify({ expectedVersion: 'v1', invoiceNumber: 'INV-020' }),
+      }),
+    );
+
+    expect(response.statusCode).toBe(404);
+    expect(repository.saveFinalized).not.toHaveBeenCalled();
+  });
+
+  it('maps non-draft existing invoices to 409 for finalization', async () => {
+    const repository = okRepository({
+      getById: vi.fn(async () =>
+        repoOk({ invoice: finalizedInvoice, version: assertInvoiceRecordVersion('v1') }),
+      ),
+    });
+    const handler = createInvoiceApiHandler({ repositoryFactory: () => repository });
+
+    const response = await handler(
+      event('POST', '/invoices/invoice_1/finalize', {
+        body: JSON.stringify({ expectedVersion: 'v1', invoiceNumber: 'INV-020' }),
+      }),
+    );
+
+    expect(response.statusCode).toBe(409);
+    expect(responseBody(response)).toEqual({
+      error: {
+        code: 'invoice_conflict',
+        message: 'Only draft invoices can be finalized.',
+      },
+    });
+    expect(repository.saveFinalized).not.toHaveBeenCalled();
+  });
+
+  it('maps domain finalization validation errors to 400', async () => {
+    const repository = okRepository();
+    const handler = createInvoiceApiHandler({ repositoryFactory: () => repository });
+
+    const response = await handler(
+      event('POST', '/invoices/invoice_1/finalize', {
+        body: JSON.stringify({ expectedVersion: 'v1', invoiceNumber: 'INV-020' }),
+      }),
+    );
+
+    expect(response.statusCode).toBe(400);
+    expect(responseBody(response)).toEqual({
+      error: {
+        code: 'missing_required_field',
+        message: 'Business snapshot is required.',
+      },
+    });
+    expect(repository.saveFinalized).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['stale expected versions', 'invoice_conflict', 409],
+    ['duplicate invoice numbers', 'invoice_number_conflict', 409],
+    ['repository unavailability', 'repository_unavailable', 503],
+  ] as const)('maps %s to HTTP responses for finalization', async (_label, code, statusCode) => {
+    const repository = okRepository({
+      getById: vi.fn(async () =>
+        repoOk({ invoice: finalizableDraftInvoice, version: assertInvoiceRecordVersion('v1') }),
+      ),
+      saveFinalized: vi.fn(
+        async (): Promise<InvoiceRepositoryResult<never>> => repoErr(error(code)),
+      ),
+    });
+    const handler = createInvoiceApiHandler({ repositoryFactory: () => repository });
+
+    const response = await handler(
+      event('POST', '/invoices/invoice_1/finalize', {
+        body: JSON.stringify({ expectedVersion: 'v1', invoiceNumber: 'INV-020' }),
+      }),
+    );
+
+    expect(response.statusCode).toBe(statusCode);
+    expect(responseBody(response)).toMatchObject({ error: { code } });
+  });
+
+  it('returns protected 501 JSON responses for the remaining void mutation stub', async () => {
     const handler = createInvoiceApiHandler({ repositoryFactory: () => okRepository() });
 
-    for (const [method, path] of [
-      ['POST', '/invoices/invoice_1/finalize'],
-      ['POST', '/invoices/invoice_1/void'],
-    ] as const) {
-      const response = await handler(event(method, path));
-      expect(response.statusCode).toBe(501);
-      expect(responseBody(response)).toEqual({
-        error: {
-          code: 'not_implemented',
-          message: 'This invoice API operation is not implemented yet.',
-        },
-      });
-    }
+    const response = await handler(event('POST', '/invoices/invoice_1/void'));
+
+    expect(response.statusCode).toBe(501);
+    expect(responseBody(response)).toEqual({
+      error: {
+        code: 'not_implemented',
+        message: 'This invoice API operation is not implemented yet.',
+      },
+    });
   });
 
   it('requires an owner before returning remaining mutation stubs', async () => {
     const handler = createInvoiceApiHandler({ repositoryFactory: () => okRepository() });
-    const response = await handler(unauthorizedEvent('POST', '/invoices/invoice_1/finalize'));
+    const response = await handler(unauthorizedEvent('POST', '/invoices/invoice_1/void'));
 
     expect(response.statusCode).toBe(401);
   });

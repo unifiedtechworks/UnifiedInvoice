@@ -59,10 +59,14 @@ No invoice-number generation, finalization, voiding, finalized invoice API behav
 behavior, PDF/email/export behavior, web integration, login UI, hosted UI/domain, production
 deployment, custom domain, VPC/NAT, app S3 bucket, budget, secret, or Task 020 work is included.
 
-The following routes remain authenticated `501 not_implemented` stubs:
+The following routes remained authenticated `501 not_implemented` stubs after Task 019:
 
 - `POST /invoices/{id}/finalize`
 - `POST /invoices/{id}/void`
+
+Task 020 implements authenticated `POST /invoices/{id}/finalize` locally using explicit invoice
+numbers, optimistic concurrency, invoice-domain finalization/calculation, and
+`repository.saveFinalized`. The void route remains a protected `501 not_implemented` stub.
 
 ## Deployment boundary
 

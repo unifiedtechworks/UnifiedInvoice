@@ -109,6 +109,12 @@ discard behavior. The route uses the path invoice ID, requires `expectedVersion`
 repository by the JWT-derived owner, ignores request-body ID/owner fields, and persists through
 `repository.discardDraft`. Finalize and void routes remain protected `501 not_implemented` stubs.
 
+Task 020 replaced only the authenticated `POST /invoices/{id}/finalize` stub with real draft
+finalization behavior. The route uses the path invoice ID, requires `expectedVersion` and an
+explicit invoice number, ignores request-body ID/owner/totals fields, finalizes through
+`invoice-domain`, and persists through `repository.saveFinalized`. The void route remains a
+protected `501 not_implemented` stub.
+
 ## Verification
 
 Run the focused API checks, focused CDK checks, repository-wide checks, generated-output cleanup,

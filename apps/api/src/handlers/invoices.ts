@@ -1,16 +1,19 @@
 import {
   parseInvoiceId,
+  parseInvoiceNumber,
   parseIsoDate,
   parseUtcTimestamp,
   USD_CURRENCY_DEFINITION,
   type DomainError,
   type InvoiceId,
+  type InvoiceNumber,
   type IsoDateString,
   type UtcTimestampString,
 } from '@invoice/domain';
 import {
   createDraftInvoice,
   createPartySnapshot,
+  finalizeInvoice,
   parseInvoiceNotes,
   parsePartyDisplayName,
   serializeInvoice,
@@ -340,6 +343,12 @@ type DraftDeleteInput = Readonly<{
   expectedVersion: InvoiceRecordVersion;
 }>;
 
+type FinalizeInvoiceInput = Readonly<{
+  expectedVersion: InvoiceRecordVersion;
+  invoiceNumber: InvoiceNumber;
+  finalizedAt?: UtcTimestampString;
+}>;
+
 const parseUpdateDraftInput = (event: ApiGatewayHttpEvent): DraftUpdatePatch | HttpResponse => {
   const body = parseJsonBody(event);
   if (isHttpResponse(body)) return body;
@@ -396,6 +405,14 @@ const parseUpdateDraftInput = (event: ApiGatewayHttpEvent): DraftUpdatePatch | H
 };
 
 const allowedDeleteDraftFields = new Set(['expectedVersion', 'id', 'ownerId']);
+const allowedFinalizeFields = new Set([
+  'expectedVersion',
+  'finalizedAt',
+  'id',
+  'invoiceNumber',
+  'ownerId',
+  'totals',
+]);
 
 const parseDeleteDraftInput = (event: ApiGatewayHttpEvent): DraftDeleteInput | HttpResponse => {
   const body = parseJsonBody(event);
@@ -415,6 +432,45 @@ const parseDeleteDraftInput = (event: ApiGatewayHttpEvent): DraftDeleteInput | H
   if (!expectedVersion.ok) return repositoryErrorResponse(expectedVersion.error);
 
   return { expectedVersion: expectedVersion.value };
+};
+
+const parseFinalizeInvoiceInput = (
+  event: ApiGatewayHttpEvent,
+): FinalizeInvoiceInput | HttpResponse => {
+  const body = parseJsonBody(event);
+  if (isHttpResponse(body)) return body;
+  if (!isRecord(body)) return jsonError(400, 'bad_request', 'Request body must be an object.');
+
+  for (const key of Object.keys(body)) {
+    if (!allowedFinalizeFields.has(key)) {
+      return jsonError(400, 'bad_request', `${key} is not supported for invoice finalization.`);
+    }
+  }
+
+  if (typeof body.expectedVersion !== 'string') {
+    return jsonError(400, 'bad_request', 'expectedVersion is required.');
+  }
+  const expectedVersion = parseInvoiceRecordVersion(body.expectedVersion);
+  if (!expectedVersion.ok) return repositoryErrorResponse(expectedVersion.error);
+
+  if (typeof body.invoiceNumber !== 'string') {
+    return jsonError(400, 'bad_request', 'invoiceNumber is required.');
+  }
+  const invoiceNumber = parseInvoiceNumber(body.invoiceNumber);
+  if (!invoiceNumber.ok) return domainErrorResponse(invoiceNumber.error);
+
+  if (body.finalizedAt !== undefined && typeof body.finalizedAt !== 'string') {
+    return jsonError(400, 'bad_request', 'finalizedAt must be a string when provided.');
+  }
+  const finalizedAt =
+    body.finalizedAt === undefined ? undefined : parseUtcTimestamp(body.finalizedAt);
+  if (finalizedAt !== undefined && !finalizedAt.ok) return domainErrorResponse(finalizedAt.error);
+
+  return {
+    expectedVersion: expectedVersion.value,
+    invoiceNumber: invoiceNumber.value,
+    ...(finalizedAt === undefined ? {} : { finalizedAt: finalizedAt.value }),
+  };
 };
 
 const applyDraftUpdatePatch = (
@@ -579,10 +635,48 @@ export const createInvoiceApiHandler = ({
       return jsonResponse(200, { id: result.value.id });
     }
 
-    if (
-      (method === 'POST' && /^\/invoices\/[^/]+\/finalize$/u.test(path)) ||
-      (method === 'POST' && /^\/invoices\/[^/]+\/void$/u.test(path))
-    ) {
+    if (method === 'POST' && /^\/invoices\/[^/]+\/finalize$/u.test(path)) {
+      const owner = requireOwner(event);
+      if (!owner.ok) return owner.response;
+
+      const rawId = pathInvoiceId(event);
+      const parsedId = rawId === undefined ? undefined : parseInvoiceId(rawId);
+      if (parsedId === undefined || !parsedId.ok) {
+        return jsonError(400, 'bad_request', 'Invoice id is invalid.');
+      }
+
+      const input = parseFinalizeInvoiceInput(event);
+      if (isHttpResponse(input)) return input;
+
+      const repository = repositoryFactory(owner.ownerId);
+      const existing = await repository.getById(parsedId.value);
+      if (!existing.ok) return repositoryErrorResponse(existing.error);
+
+      if (existing.value.invoice.kind !== 'draft') {
+        return jsonError(409, 'invoice_conflict', 'Only draft invoices can be finalized.');
+      }
+
+      const finalizedAt = input.finalizedAt ?? parseTimestamp(now());
+      if (isHttpResponse(finalizedAt)) return finalizedAt;
+
+      const finalized = finalizeInvoice(existing.value.invoice, {
+        invoiceNumber: input.invoiceNumber,
+        finalizedAt,
+      });
+      if (!finalized.ok) return domainErrorResponse(finalized.error);
+
+      const result = await repository.saveFinalized(finalized.value, {
+        expectedVersion: input.expectedVersion,
+      });
+      if (!result.ok) return repositoryErrorResponse(result.error);
+
+      return jsonResponse(200, {
+        invoice: serializeInvoice(result.value.invoice),
+        version: result.value.version,
+      });
+    }
+
+    if (method === 'POST' && /^\/invoices\/[^/]+\/void$/u.test(path)) {
       const owner = requireOwner(event);
       if (!owner.ok) return owner.response;
       return jsonError(501, 'not_implemented', mutationNotImplementedMessage);

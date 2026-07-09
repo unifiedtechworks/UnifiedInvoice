@@ -88,6 +88,14 @@ owner and ID fields, and keep invoice-number generation/finalization/calculation
 Finalize, void, and draft delete routes remain protected `501 not_implemented` stubs. Task 018
 does not deploy the new update behavior without later explicit deploy approval.
 
+## Task 020 follow-up
+
+Task 020 implements authenticated `POST /invoices/{id}/finalize` locally after draft delete was
+deployed in Task 019B. Finalization requires `expectedVersion` and an explicit invoice number,
+uses the path invoice ID and JWT-derived owner, ignores request-body owner/ID/totals fields,
+finalizes through the existing invoice-domain calculation/finalization behavior, and persists
+through `repository.saveFinalized`. The void route remains a protected `501 not_implemented` stub.
+
 ## Verification
 
 Final verification results are recorded in the Task 017 completion response.

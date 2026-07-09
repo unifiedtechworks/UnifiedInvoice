@@ -7,11 +7,10 @@ This repository is a TypeScript monorepo for an invoice-management platform.
 - `apps/mobile` contains a bare React Native app with Android as the only native verification target.
 - `apps/web` contains a React Native for Web app built with Vite.
 - `apps/api` contains the TypeScript Lambda application scaffold. It keeps `GET /health` public,
-  adds authenticated invoice route handling for the serverless API, implements `GET /invoices` and
-  `GET /invoices/{id}` plus authenticated `POST /invoices/drafts` and
-  `PUT /invoices/drafts/{id}` and `DELETE /invoices/drafts/{id}` through the owner-scoped DynamoDB
-  invoice repository adapter, and leaves finalize/void routes as protected `501 Not Implemented`
-  stubs until later tasks.
+  adds authenticated invoice route handling for the serverless API, implements `GET /invoices`,
+  `GET /invoices/{id}`, authenticated draft create/update/delete routes, and authenticated
+  `POST /invoices/{id}/finalize` through the owner-scoped DynamoDB invoice repository adapter, and
+  leaves the void route as a protected `501 Not Implemented` stub until a later task.
 - `packages/domain` contains framework-independent reusable primitives, identifiers, dates, money, quantity, rates, invoice numbers, and shared result/error types.
 - `packages/invoice-engine` contains deterministic financial invoice calculation only.
 - `packages/invoice-domain` contains framework-independent draft invoice, finalization, immutable finalized snapshot, voiding behavior, and canonical JSON-safe invoice aggregate serialization. It depends on `packages/domain` and `packages/invoice-engine` and prevents a `domain -> invoice-engine` dependency cycle.
