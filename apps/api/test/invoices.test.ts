@@ -151,6 +151,7 @@ const responseBody = (response: Awaited<ReturnType<ReturnType<typeof createInvoi
 
 const deterministicOptions = {
   generateInvoiceId: () => 'invoice_created',
+  generateLineItemId: () => 'line_created',
   now: () => new Date('2026-01-02T03:04:05.000Z'),
 } as const;
 
@@ -357,6 +358,77 @@ describe('invoice API routes', () => {
     });
   });
 
+  it('creates draft invoices with finalizable business and line fields', async () => {
+    const repository = okRepository();
+    const handler = createInvoiceApiHandler({
+      repositoryFactory: () => repository,
+      ...deterministicOptions,
+    });
+
+    const response = await handler(
+      event('POST', '/invoices/drafts', {
+        body: JSON.stringify({
+          draft: {
+            business: { displayName: 'Unified Techworks' },
+            customer: { displayName: 'Finalize Customer' },
+            issueDate: '2026-03-01',
+            dueDate: '2026-03-15',
+            notes: 'Ready to finalize',
+            lines: [
+              {
+                description: 'Service description',
+                quantity: '2',
+                unitPrice: '125.00',
+              },
+            ],
+          },
+        }),
+      }),
+    );
+
+    expect(repository.createDraft).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'draft',
+        id: assertInvoiceId('invoice_created'),
+        business: { displayName: 'Unified Techworks' },
+        customer: { displayName: 'Finalize Customer' },
+        issueDate: '2026-03-01',
+        dueDate: '2026-03-15',
+        lines: [
+          expect.objectContaining({
+            id: assertInvoiceLineItemId('line_created'),
+            position: 0,
+            description: 'Service description',
+            quantity: assertQuantity('2'),
+            unitPrice: money('125.00'),
+          }),
+        ],
+      }),
+    );
+    expect(response.statusCode).toBe(201);
+    expect(responseBody(response)).toMatchObject({
+      invoice: {
+        schemaVersion: 1,
+        kind: 'draft',
+        id: 'invoice_created',
+        business: { displayName: 'Unified Techworks' },
+        customer: { displayName: 'Finalize Customer' },
+        issueDate: '2026-03-01',
+        dueDate: '2026-03-15',
+        lines: [
+          {
+            id: 'line_created',
+            position: 0,
+            description: 'Service description',
+            quantity: { units: '20000', scale: 4 },
+            unitPrice: { currency: 'USD', minorUnits: '12500' },
+          },
+        ],
+      },
+      version: 'v-created',
+    });
+  });
+
   it('supports minimal draft creation with a generated invoice id', async () => {
     const repository = okRepository();
     const handler = createInvoiceApiHandler({
@@ -425,6 +497,46 @@ describe('invoice API routes', () => {
         message: 'Due date must not precede issue date.',
       },
     });
+  });
+
+  it.each([
+    ['invalid business shape', { draft: { business: 'not an object' } }, 'bad_request'],
+    ['invalid line shape', { draft: { lines: ['not an object'] } }, 'bad_request'],
+    [
+      'invalid quantity',
+      {
+        draft: {
+          lines: [{ description: 'Service', quantity: 'not-a-quantity', unitPrice: '1.00' }],
+        },
+      },
+      'invalid_quantity',
+    ],
+    [
+      'invalid unit price',
+      {
+        draft: {
+          lines: [{ description: 'Service', quantity: '1', unitPrice: '1.001' }],
+        },
+      },
+      'invalid_money',
+    ],
+    ['unsupported invoice number', { draft: { invoiceNumber: 'INV-001' } }, 'bad_request'],
+    ['unsupported totals', { draft: { totals: {} } }, 'bad_request'],
+    ['unsupported payments', { draft: { payments: [] } }, 'bad_request'],
+  ])('maps %s in draft creation to 400', async (_label, body, code) => {
+    const repository = okRepository();
+    const handler = createInvoiceApiHandler({
+      repositoryFactory: () => repository,
+      ...deterministicOptions,
+    });
+
+    const response = await handler(
+      event('POST', '/invoices/drafts', { body: JSON.stringify(body) }),
+    );
+
+    expect(response.statusCode).toBe(400);
+    expect(responseBody(response)).toMatchObject({ error: { code } });
+    expect(repository.createDraft).not.toHaveBeenCalled();
   });
 
   it('requires an owner for POST /invoices/drafts', async () => {
@@ -538,6 +650,127 @@ describe('invoice API routes', () => {
     });
   });
 
+  it('updates draft invoices with finalizable business and replacement lines', async () => {
+    const repository = okRepository();
+    const repositoryFactory = vi.fn(() => repository);
+    const handler = createInvoiceApiHandler({ repositoryFactory, ...deterministicOptions });
+
+    const response = await handler(
+      event('PUT', '/invoices/drafts/invoice_1', {
+        body: JSON.stringify({
+          expectedVersion: 'v1',
+          draft: {
+            business: { displayName: 'Unified Techworks' },
+            customer: { displayName: 'Updated Customer' },
+            issueDate: '2026-03-01',
+            dueDate: '2026-03-15',
+            lines: [
+              {
+                description: 'Updated service description',
+                quantity: '2',
+                unitPrice: '125.00',
+              },
+            ],
+          },
+        }),
+      }),
+    );
+
+    expect(repositoryFactory).toHaveBeenCalledWith('owner-123');
+    expect(repository.updateDraft).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'draft',
+        id: assertInvoiceId('invoice_1'),
+        business: { displayName: 'Unified Techworks' },
+        customer: { displayName: 'Updated Customer' },
+        issueDate: '2026-03-01',
+        dueDate: '2026-03-15',
+        lines: [
+          expect.objectContaining({
+            id: assertInvoiceLineItemId('line_created'),
+            position: 0,
+            description: 'Updated service description',
+            quantity: assertQuantity('2'),
+            unitPrice: money('125.00'),
+          }),
+        ],
+        updatedAt: '2026-01-02T03:04:05.000Z',
+      }),
+      { expectedVersion: 'v1' },
+    );
+    expect(response.statusCode).toBe(200);
+    expect(responseBody(response)).toMatchObject({
+      invoice: {
+        kind: 'draft',
+        id: 'invoice_1',
+        business: { displayName: 'Unified Techworks' },
+        lines: [
+          {
+            id: 'line_created',
+            description: 'Updated service description',
+            quantity: { units: '20000', scale: 4 },
+            unitPrice: { currency: 'USD', minorUnits: '12500' },
+          },
+        ],
+      },
+      version: 'v-updated',
+    });
+  });
+
+  it('keeps existing draft lines when update omits lines', async () => {
+    const repository = okRepository({
+      getById: vi.fn(async () =>
+        repoOk({ invoice: finalizableDraftInvoice, version: assertInvoiceRecordVersion('v1') }),
+      ),
+    });
+    const handler = createInvoiceApiHandler({
+      repositoryFactory: () => repository,
+      ...deterministicOptions,
+    });
+
+    const response = await handler(
+      event('PUT', '/invoices/drafts/invoice_1', {
+        body: JSON.stringify({ expectedVersion: 'v1', draft: { notes: 'Keep lines' } }),
+      }),
+    );
+
+    expect(response.statusCode).toBe(200);
+    expect(repository.updateDraft).toHaveBeenCalledWith(
+      expect.objectContaining({
+        notes: 'Keep lines',
+        lines: finalizableDraftInvoice.lines,
+      }),
+      { expectedVersion: 'v1' },
+    );
+  });
+
+  it('removes all draft lines when update provides an empty lines array', async () => {
+    const repository = okRepository({
+      getById: vi.fn(async () =>
+        repoOk({ invoice: finalizableDraftInvoice, version: assertInvoiceRecordVersion('v1') }),
+      ),
+    });
+    const handler = createInvoiceApiHandler({
+      repositoryFactory: () => repository,
+      ...deterministicOptions,
+    });
+
+    const response = await handler(
+      event('PUT', '/invoices/drafts/invoice_1', {
+        body: JSON.stringify({ expectedVersion: 'v1', draft: { lines: [] } }),
+      }),
+    );
+
+    expect(response.statusCode).toBe(200);
+    expect(repository.updateDraft).toHaveBeenCalledWith(
+      expect.objectContaining({
+        lines: [],
+        updatedAt: '2026-01-02T03:04:05.000Z',
+      }),
+      { expectedVersion: 'v1' },
+    );
+  });
+
   it('requires an owner for PUT /invoices/drafts/{id}', async () => {
     const handler = createInvoiceApiHandler({ repositoryFactory: () => okRepository() });
     const response = await handler(unauthorizedEvent('PUT', '/invoices/drafts/invoice_1'));
@@ -618,6 +851,60 @@ describe('invoice API routes', () => {
     );
 
     expect(response.statusCode).toBe(400);
+    expect(repository.getById).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [
+      'invalid business shape',
+      { expectedVersion: 'v1', draft: { business: 'not an object' } },
+      'bad_request',
+    ],
+    [
+      'invalid line shape',
+      { expectedVersion: 'v1', draft: { lines: ['not an object'] } },
+      'bad_request',
+    ],
+    [
+      'invalid quantity',
+      {
+        expectedVersion: 'v1',
+        draft: {
+          lines: [{ description: 'Service', quantity: 'not-a-quantity', unitPrice: '1.00' }],
+        },
+      },
+      'invalid_quantity',
+    ],
+    [
+      'invalid unit price',
+      {
+        expectedVersion: 'v1',
+        draft: {
+          lines: [{ description: 'Service', quantity: '1', unitPrice: '1.001' }],
+        },
+      },
+      'invalid_money',
+    ],
+    [
+      'unsupported invoice number',
+      { expectedVersion: 'v1', draft: { invoiceNumber: 'INV-001' } },
+      'bad_request',
+    ],
+    ['unsupported totals', { expectedVersion: 'v1', draft: { totals: {} } }, 'bad_request'],
+    ['unsupported payments', { expectedVersion: 'v1', draft: { payments: [] } }, 'bad_request'],
+  ])('maps %s in draft updates to 400', async (_label, body, code) => {
+    const repository = okRepository();
+    const handler = createInvoiceApiHandler({
+      repositoryFactory: () => repository,
+      ...deterministicOptions,
+    });
+
+    const response = await handler(
+      event('PUT', '/invoices/drafts/invoice_1', { body: JSON.stringify(body) }),
+    );
+
+    expect(response.statusCode).toBe(400);
+    expect(responseBody(response)).toMatchObject({ error: { code } });
     expect(repository.getById).not.toHaveBeenCalled();
   });
 

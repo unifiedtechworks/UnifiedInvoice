@@ -24,19 +24,30 @@ Supported minimal JSON shape:
 {
   "expectedVersion": "v...",
   "draft": {
+    "business": {
+      "displayName": "Optional business name"
+    },
     "customer": {
       "displayName": "Optional customer name"
     },
     "issueDate": "2026-03-01",
     "dueDate": "2026-03-15",
-    "notes": "Optional notes"
+    "notes": "Optional notes",
+    "lines": [
+      {
+        "description": "Updated service description",
+        "quantity": "2",
+        "unitPrice": "125.00"
+      }
+    ]
   }
 }
 ```
 
 `expectedVersion` is required and validated with the repository version parser. The path `{id}` is
 the invoice ID. Request-body `id` and owner fields are ignored when present and cannot override the
-path ID or JWT-derived owner.
+path ID or JWT-derived owner. After Task 021, `lines` replaces the draft line list when provided;
+omitting `lines` leaves existing lines unchanged, and an empty array removes all lines.
 
 ## Behavior implemented
 
@@ -49,9 +60,11 @@ path ID or JWT-derived owner.
 - Returns `404` when the invoice is missing.
 - Returns `409 invoice_conflict` when the existing invoice is not a draft.
 - Applies supported draft updates through existing invoice-domain functions:
+  - business display name with `setDraftInvoiceParties`
   - customer display name with `setDraftInvoiceParties`
   - issue/due dates with `setDraftInvoiceDates`
   - notes with `setDraftInvoiceText`
+  - line list replacement with existing draft line remove/add functions
 - Persists with `repository.updateDraft(updatedDraft, { expectedVersion })`.
 - Returns `200 OK` with serialized invoice data and the repository version.
 

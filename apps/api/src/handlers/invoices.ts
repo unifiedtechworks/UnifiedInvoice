@@ -1,27 +1,35 @@
 import {
+  assertInvoiceLineItemId,
+  parseMoneyFromDecimal,
   parseInvoiceId,
   parseInvoiceNumber,
   parseIsoDate,
+  parseQuantity,
   parseUtcTimestamp,
   USD_CURRENCY_DEFINITION,
   type DomainError,
   type InvoiceId,
+  type InvoiceLineItemId,
   type InvoiceNumber,
   type IsoDateString,
   type UtcTimestampString,
 } from '@invoice/domain';
 import {
+  addDraftInvoiceLine,
   createDraftInvoice,
   createPartySnapshot,
   finalizeInvoice,
   parseInvoiceNotes,
+  parseInvoiceLineDescription,
   parsePartyDisplayName,
+  removeDraftInvoiceLine,
   serializeInvoice,
   setDraftInvoiceDates,
   setDraftInvoiceParties,
   setDraftInvoiceText,
   type CreateDraftInvoiceInput,
   type DraftInvoice,
+  type DraftInvoiceLineInput,
   type InvoiceNotes,
   type PartySnapshot,
 } from '@invoice/invoice-domain';
@@ -62,6 +70,7 @@ export type ApiGatewayHttpEvent = AuthenticatedEvent &
 export type InvoiceApiHandlerOptions = Readonly<{
   repositoryFactory?: InvoiceRepositoryFactory;
   generateInvoiceId?: () => string;
+  generateLineItemId?: () => string;
   now?: () => Date;
 }>;
 
@@ -249,14 +258,17 @@ const parseOptionalNotes = (value: unknown): InvoiceNotes | undefined | HttpResp
   return parsed.value;
 };
 
-const parseOptionalCustomer = (value: unknown): PartySnapshot | undefined | HttpResponse => {
+const parseOptionalParty = (
+  value: unknown,
+  fieldName: 'business' | 'customer',
+): PartySnapshot | undefined | HttpResponse => {
   if (value === undefined) return undefined;
   if (!isRecord(value)) {
-    return jsonError(400, 'bad_request', 'draft.customer must be an object when provided.');
+    return jsonError(400, 'bad_request', `draft.${fieldName} must be an object when provided.`);
   }
 
   if (typeof value.displayName !== 'string') {
-    return jsonError(400, 'bad_request', 'draft.customer.displayName must be a string.');
+    return jsonError(400, 'bad_request', `draft.${fieldName}.displayName must be a string.`);
   }
 
   const displayName = parsePartyDisplayName(value.displayName);
@@ -267,14 +279,107 @@ const parseOptionalCustomer = (value: unknown): PartySnapshot | undefined | Http
   return customer.value;
 };
 
+const parseOptionalCustomer = (value: unknown): PartySnapshot | undefined | HttpResponse =>
+  parseOptionalParty(value, 'customer');
+
+const parseOptionalBusiness = (value: unknown): PartySnapshot | undefined | HttpResponse =>
+  parseOptionalParty(value, 'business');
+
 const createGeneratedInvoiceId = (): string =>
   `invoice_${globalThis.crypto.randomUUID().replaceAll('-', '_')}`;
+
+const createGeneratedLineItemId = (): string =>
+  `line_${globalThis.crypto.randomUUID().replaceAll('-', '_')}`;
+
+const allowedCreateDraftFields = new Set([
+  'business',
+  'customer',
+  'dueDate',
+  'id',
+  'issueDate',
+  'lines',
+  'notes',
+  'ownerId',
+]);
+
+const parseGeneratedLineItemId = (
+  generateLineItemId: () => string,
+): InvoiceLineItemId | HttpResponse => {
+  try {
+    return assertInvoiceLineItemId(generateLineItemId());
+  } catch {
+    return jsonError(500, 'internal_error', 'Generated invoice line item id is invalid.');
+  }
+};
+
+const parseDraftLineInput = (
+  value: unknown,
+  position: number,
+  generateLineItemId: () => string,
+): DraftInvoiceLineInput | HttpResponse => {
+  if (!isRecord(value)) {
+    return jsonError(400, 'bad_request', `draft.lines.${position} must be an object.`);
+  }
+
+  if (typeof value.description !== 'string') {
+    return jsonError(400, 'bad_request', `draft.lines.${position}.description must be a string.`);
+  }
+  const description = parseInvoiceLineDescription(value.description);
+  if (!description.ok) return domainErrorResponse(description.error);
+
+  if (typeof value.quantity !== 'string') {
+    return jsonError(400, 'bad_request', `draft.lines.${position}.quantity must be a string.`);
+  }
+  const quantity = parseQuantity(value.quantity);
+  if (!quantity.ok) return domainErrorResponse(quantity.error);
+
+  if (typeof value.unitPrice !== 'string') {
+    return jsonError(400, 'bad_request', `draft.lines.${position}.unitPrice must be a string.`);
+  }
+  const unitPrice = parseMoneyFromDecimal(value.unitPrice, USD_CURRENCY_DEFINITION);
+  if (!unitPrice.ok) return domainErrorResponse(unitPrice.error);
+
+  const id = parseGeneratedLineItemId(generateLineItemId);
+  if (isHttpResponse(id)) return id;
+
+  return {
+    id,
+    position,
+    description: description.value,
+    quantity: quantity.value,
+    unitPrice: unitPrice.value,
+  };
+};
+
+const parseOptionalDraftLines = (
+  value: unknown,
+  generateLineItemId: () => string,
+): readonly DraftInvoiceLineInput[] | undefined | HttpResponse => {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) {
+    return jsonError(400, 'bad_request', 'draft.lines must be an array when provided.');
+  }
+
+  const lines: DraftInvoiceLineInput[] = [];
+  for (const [index, line] of value.entries()) {
+    const parsed = parseDraftLineInput(line, index, generateLineItemId);
+    if (isHttpResponse(parsed)) return parsed;
+    lines.push(parsed);
+  }
+  return Object.freeze(lines);
+};
 
 const parseCreateDraftInput = (
   event: ApiGatewayHttpEvent,
   generateInvoiceId: () => string,
+  generateLineItemId: () => string,
   now: () => Date,
-): CreateDraftInvoiceInput | HttpResponse => {
+):
+  | Readonly<{
+      draft: CreateDraftInvoiceInput;
+      lines?: readonly DraftInvoiceLineInput[];
+    }>
+  | HttpResponse => {
   const body = parseJsonBody(event);
   if (isHttpResponse(body)) return body;
   if (!isRecord(body)) return jsonError(400, 'bad_request', 'Request body must be an object.');
@@ -285,6 +390,12 @@ const parseCreateDraftInput = (
   }
   const draft = rawDraft ?? {};
 
+  for (const key of Object.keys(draft)) {
+    if (!allowedCreateDraftFields.has(key)) {
+      return jsonError(400, 'bad_request', `draft.${key} is not supported for draft creation.`);
+    }
+  }
+
   const id =
     Object.hasOwn(draft, 'id') && draft.id !== undefined
       ? parseOptionalInvoiceId(draft.id)
@@ -293,6 +404,9 @@ const parseCreateDraftInput = (
 
   const timestamp = parseTimestamp(now());
   if (isHttpResponse(timestamp)) return timestamp;
+
+  const business = parseOptionalBusiness(draft.business);
+  if (isHttpResponse(business)) return business;
 
   const customer = parseOptionalCustomer(draft.customer);
   if (isHttpResponse(customer)) return customer;
@@ -306,23 +420,32 @@ const parseCreateDraftInput = (
   const notes = parseOptionalNotes(draft.notes);
   if (isHttpResponse(notes)) return notes;
 
+  const lines = parseOptionalDraftLines(draft.lines, generateLineItemId);
+  if (isHttpResponse(lines)) return lines;
+
   return {
-    id,
-    currency: USD_CURRENCY_DEFINITION,
-    createdAt: timestamp,
-    updatedAt: timestamp,
-    ...(customer === undefined ? {} : { customer }),
-    ...(issueDate === undefined ? {} : { issueDate }),
-    ...(dueDate === undefined ? {} : { dueDate }),
-    ...(notes === undefined ? {} : { notes }),
+    draft: {
+      id,
+      currency: USD_CURRENCY_DEFINITION,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      ...(business === undefined ? {} : { business }),
+      ...(customer === undefined ? {} : { customer }),
+      ...(issueDate === undefined ? {} : { issueDate }),
+      ...(dueDate === undefined ? {} : { dueDate }),
+      ...(notes === undefined ? {} : { notes }),
+    },
+    ...(lines === undefined ? {} : { lines }),
   };
 };
 
 const allowedUpdateDraftFields = new Set([
+  'business',
   'customer',
   'dueDate',
   'id',
   'issueDate',
+  'lines',
   'notes',
   'ownerId',
 ]);
@@ -333,10 +456,14 @@ type DraftUpdatePatch = Readonly<{
   issueDate?: IsoDateString;
   dueDate?: IsoDateString;
   notes?: InvoiceNotes;
+  lines?: readonly DraftInvoiceLineInput[];
+  business?: PartySnapshot;
+  hasBusiness: boolean;
   hasCustomer: boolean;
   hasIssueDate: boolean;
   hasDueDate: boolean;
   hasNotes: boolean;
+  hasLines: boolean;
 }>;
 
 type DraftDeleteInput = Readonly<{
@@ -349,7 +476,10 @@ type FinalizeInvoiceInput = Readonly<{
   finalizedAt?: UtcTimestampString;
 }>;
 
-const parseUpdateDraftInput = (event: ApiGatewayHttpEvent): DraftUpdatePatch | HttpResponse => {
+const parseUpdateDraftInput = (
+  event: ApiGatewayHttpEvent,
+  generateLineItemId: () => string,
+): DraftUpdatePatch | HttpResponse => {
   const body = parseJsonBody(event);
   if (isHttpResponse(body)) return body;
   if (!isRecord(body)) return jsonError(400, 'bad_request', 'Request body must be an object.');
@@ -370,14 +500,19 @@ const parseUpdateDraftInput = (event: ApiGatewayHttpEvent): DraftUpdatePatch | H
     }
   }
 
+  const hasBusiness = Object.hasOwn(body.draft, 'business');
   const hasCustomer = Object.hasOwn(body.draft, 'customer');
   const hasIssueDate = Object.hasOwn(body.draft, 'issueDate');
   const hasDueDate = Object.hasOwn(body.draft, 'dueDate');
   const hasNotes = Object.hasOwn(body.draft, 'notes');
+  const hasLines = Object.hasOwn(body.draft, 'lines');
 
-  if (!hasCustomer && !hasIssueDate && !hasDueDate && !hasNotes) {
+  if (!hasBusiness && !hasCustomer && !hasIssueDate && !hasDueDate && !hasNotes && !hasLines) {
     return jsonError(400, 'bad_request', 'At least one supported draft field is required.');
   }
+
+  const business = hasBusiness ? parseOptionalBusiness(body.draft.business) : undefined;
+  if (isHttpResponse(business)) return business;
 
   const customer = hasCustomer ? parseOptionalCustomer(body.draft.customer) : undefined;
   if (isHttpResponse(customer)) return customer;
@@ -391,16 +526,25 @@ const parseUpdateDraftInput = (event: ApiGatewayHttpEvent): DraftUpdatePatch | H
   const notes = hasNotes ? parseOptionalNotes(body.draft.notes) : undefined;
   if (isHttpResponse(notes)) return notes;
 
+  const lines = hasLines
+    ? parseOptionalDraftLines(body.draft.lines, generateLineItemId)
+    : undefined;
+  if (isHttpResponse(lines)) return lines;
+
   return {
     expectedVersion: expectedVersion.value,
+    ...(business === undefined ? {} : { business }),
     ...(customer === undefined ? {} : { customer }),
     ...(issueDate === undefined ? {} : { issueDate }),
     ...(dueDate === undefined ? {} : { dueDate }),
     ...(notes === undefined ? {} : { notes }),
+    ...(lines === undefined ? {} : { lines }),
+    hasBusiness,
     hasCustomer,
     hasIssueDate,
     hasDueDate,
     hasNotes,
+    hasLines,
   };
 };
 
@@ -480,8 +624,18 @@ const applyDraftUpdatePatch = (
 ): DraftInvoice | HttpResponse => {
   let current = draft;
 
-  if (patch.hasCustomer && patch.customer !== undefined) {
-    const updated = setDraftInvoiceParties(current, { customer: patch.customer }, updatedAt);
+  if (
+    (patch.hasBusiness && patch.business !== undefined) ||
+    (patch.hasCustomer && patch.customer !== undefined)
+  ) {
+    const updated = setDraftInvoiceParties(
+      current,
+      {
+        ...(patch.hasBusiness ? { business: patch.business } : {}),
+        ...(patch.hasCustomer ? { customer: patch.customer } : {}),
+      },
+      updatedAt,
+    );
     if (!updated.ok) return domainErrorResponse(updated.error);
     current = updated.value;
   }
@@ -505,7 +659,41 @@ const applyDraftUpdatePatch = (
     current = updated.value;
   }
 
+  if (patch.hasLines && patch.lines !== undefined) {
+    const replaced = replaceDraftInvoiceLines(current, patch.lines, updatedAt);
+    if (isHttpResponse(replaced)) return replaced;
+    current = replaced;
+  }
+
   return current;
+};
+
+const applyDraftLines = (
+  draft: DraftInvoice,
+  lines: readonly DraftInvoiceLineInput[],
+  updatedAt: UtcTimestampString,
+): DraftInvoice | HttpResponse => {
+  let current = draft;
+  for (const line of lines) {
+    const updated = addDraftInvoiceLine(current, line, updatedAt);
+    if (!updated.ok) return domainErrorResponse(updated.error);
+    current = updated.value;
+  }
+  return current;
+};
+
+const replaceDraftInvoiceLines = (
+  draft: DraftInvoice,
+  lines: readonly DraftInvoiceLineInput[],
+  updatedAt: UtcTimestampString,
+): DraftInvoice | HttpResponse => {
+  let current = draft;
+  for (const line of draft.lines) {
+    const updated = removeDraftInvoiceLine(current, line.id, updatedAt);
+    if (!updated.ok) return domainErrorResponse(updated.error);
+    current = updated.value;
+  }
+  return applyDraftLines(current, lines, updatedAt);
 };
 
 const isHttpResponse = (value: unknown): value is HttpResponse =>
@@ -514,6 +702,7 @@ const isHttpResponse = (value: unknown): value is HttpResponse =>
 export const createInvoiceApiHandler = ({
   repositoryFactory = createInvoiceRepository,
   generateInvoiceId = createGeneratedInvoiceId,
+  generateLineItemId = createGeneratedLineItemId,
   now = () => new Date(),
 }: InvoiceApiHandlerOptions = {}) => {
   const handler = async (event: ApiGatewayHttpEvent): Promise<HttpResponse> => {
@@ -561,13 +750,19 @@ export const createInvoiceApiHandler = ({
       const owner = requireOwner(event);
       if (!owner.ok) return owner.response;
 
-      const input = parseCreateDraftInput(event, generateInvoiceId, now);
+      const input = parseCreateDraftInput(event, generateInvoiceId, generateLineItemId, now);
       if (isHttpResponse(input)) return input;
 
-      const invoice = createDraftInvoice(input);
+      const invoice = createDraftInvoice(input.draft);
       if (!invoice.ok) return domainErrorResponse(invoice.error);
 
-      const result = await repositoryFactory(owner.ownerId).createDraft(invoice.value);
+      const draft =
+        input.lines === undefined
+          ? invoice.value
+          : applyDraftLines(invoice.value, input.lines, input.draft.createdAt);
+      if (isHttpResponse(draft)) return draft;
+
+      const result = await repositoryFactory(owner.ownerId).createDraft(draft);
       if (!result.ok) return repositoryErrorResponse(result.error);
 
       return jsonResponse(201, {
@@ -586,7 +781,7 @@ export const createInvoiceApiHandler = ({
         return jsonError(400, 'bad_request', 'Invoice id is invalid.');
       }
 
-      const patch = parseUpdateDraftInput(event);
+      const patch = parseUpdateDraftInput(event, generateLineItemId);
       if (isHttpResponse(patch)) return patch;
 
       const repository = repositoryFactory(owner.ownerId);

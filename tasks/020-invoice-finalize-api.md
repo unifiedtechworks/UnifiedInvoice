@@ -78,6 +78,14 @@ The following route remains an authenticated `501 not_implemented` stub:
 No deployment was performed in Task 020. CDK diff review is the stopping point until explicit
 deployment approval is given.
 
+## Task 021 follow-up
+
+Task 021 adds minimal business display name and draft line-item support to authenticated draft
+create/update routes so clients can prepare drafts that satisfy finalization preconditions through
+the API. The finalize route contract remains unchanged: it still requires `expectedVersion` and an
+explicit invoice number, computes totals through invoice-domain/invoice-engine behavior, and does
+not accept client-provided totals or payments.
+
 ## Verification
 
 Final verification results are recorded in the Task 020 completion response.

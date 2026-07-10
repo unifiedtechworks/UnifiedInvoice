@@ -26,19 +26,31 @@ Supported optional shape:
 {
   "draft": {
     "id": "optional-client-generated-id",
+    "business": {
+      "displayName": "Optional business name"
+    },
     "customer": {
       "displayName": "Optional customer name"
     },
     "issueDate": "2026-02-01",
     "dueDate": "2026-02-15",
-    "notes": "Optional notes"
+    "notes": "Optional notes",
+    "lines": [
+      {
+        "description": "Optional service description",
+        "quantity": "1",
+        "unitPrice": "100.00"
+      }
+    ]
   }
 }
 ```
 
-The route intentionally does not accept owner ID, line items, invoice numbers, finalized state, or
-calculation inputs from the request body. If an `ownerId` field is present in the body, it is
-ignored.
+After Task 021, create accepts the minimal business display name and line-item fields needed to
+create a finalizable draft through the API. Money and quantity inputs are string values parsed
+through domain primitives. The route intentionally does not accept owner ID, invoice numbers,
+finalized totals, payments, finalized state, or calculation inputs from the request body. If an
+`ownerId` field is present in the body, it is ignored.
 
 ## Behavior implemented
 
@@ -46,8 +58,8 @@ ignored.
 - Parses JSON request bodies and returns `400 bad_request` for malformed JSON.
 - Uses `createDraftInvoice` from `@invoice/invoice-domain`.
 - Uses the default USD currency definition for newly created drafts.
-- Applies optional customer display name, issue date, due date, and notes only through existing
-  domain parsers.
+- Applies optional business display name, customer display name, issue date, due date, notes, and
+  line items only through existing domain parsers and draft edit functions.
 - Persists the draft with `repository.createDraft`.
 - Returns `201 Created` with serialized invoice data and the repository version.
 - Generates invoice IDs with `crypto.randomUUID()` through the runtime `globalThis.crypto` API when
