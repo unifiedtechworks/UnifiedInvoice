@@ -2,8 +2,7 @@
 
 ## Status
 
-Implemented locally; ready for review after verification. No deployment or commit was performed by
-this task.
+Implemented and committed in Task 021. Deployed to dev and verified in Task 021B.
 
 ## Objective
 
@@ -60,7 +59,14 @@ bucket, budget, secret, deploy, commit, or Task 022 work is included.
 
 ## Verification
 
-Final verification results are recorded in the Task 021 completion response.
+Task 021 local verification results are recorded in the Task 021 completion response.
+
+Task 021B deployed the Lambda-code-only change to the dev stack and verified that authenticated
+draft create/update requests can carry the minimal finalizable fields. Verification confirmed
+public health remained available, authenticated create accepted business, customer, dates, and one
+line item, get-by-id returned those finalizable fields, authenticated update replaced the business
+display name and line list, and get-by-id returned the updated fields. No finalization route was
+called during Task 021B.
 
 ## Proposed commit message
 
