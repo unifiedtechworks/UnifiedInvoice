@@ -115,6 +115,11 @@ explicit invoice number, ignores request-body ID/owner/totals fields, finalizes 
 `invoice-domain`, and persists through `repository.saveFinalized`. The void route remains a
 protected `501 not_implemented` stub.
 
+Task 022 replaced the authenticated `POST /invoices/{id}/void` stub with real void behavior. The
+route uses the path invoice ID, requires `expectedVersion` and `voidReason`, ignores request-body
+ID/owner/totals/payment fields, voids finalized invoices through `invoice-domain`, and persists
+through `repository.saveVoided`.
+
 ## Verification
 
 Run the focused API checks, focused CDK checks, repository-wide checks, generated-output cleanup,

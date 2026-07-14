@@ -65,11 +65,11 @@ ID, JWT-derived owner, or domain-calculated totals.
 ## Scope boundaries
 
 Finalization does not generate invoice numbers, does not accept client-provided totals, does not
-add line-item editing, does not implement voiding, and does not add payment, PDF, email, export,
-web integration, login UI, hosted UI/domain, production deployment, custom domain, VPC/NAT, app S3
-bucket, budget, secret, or Task 021 behavior.
+add line-item editing, and does not add payment, PDF, email, export, web integration, login UI,
+hosted UI/domain, production deployment, custom domain, VPC/NAT, app S3 bucket, budget, secret, or
+Task 021 behavior.
 
-The following route remains an authenticated `501 not_implemented` stub:
+Task 022 implements the following route after Task 020:
 
 - `POST /invoices/{id}/void`
 
@@ -95,6 +95,9 @@ finalizable. Verification confirmed public health remained available, authentica
 could prepare a finalizable draft, authenticated finalization returned a finalized invoice,
 get-by-id returned the finalized invoice, list endpoints included the finalized invoice, duplicate
 invoice-number finalization returned `409`, and the void route remained `501`.
+
+Task 022 follows up by implementing the void route. It preserves the finalize route contract and
+uses the finalized invoice snapshot without recalculating totals or releasing invoice numbers.
 
 ## Proposed commit message
 

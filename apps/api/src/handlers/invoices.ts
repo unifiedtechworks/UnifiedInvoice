@@ -19,19 +19,22 @@ import {
   createDraftInvoice,
   createPartySnapshot,
   finalizeInvoice,
-  parseInvoiceNotes,
   parseInvoiceLineDescription,
+  parseInvoiceNotes,
   parsePartyDisplayName,
+  parseVoidReason,
   removeDraftInvoiceLine,
   serializeInvoice,
   setDraftInvoiceDates,
   setDraftInvoiceParties,
   setDraftInvoiceText,
+  voidInvoice,
   type CreateDraftInvoiceInput,
   type DraftInvoice,
   type DraftInvoiceLineInput,
   type InvoiceNotes,
   type PartySnapshot,
+  type VoidReason,
 } from '@invoice/invoice-domain';
 import type {
   InvoiceLifecycleKind,
@@ -73,8 +76,6 @@ export type InvoiceApiHandlerOptions = Readonly<{
   generateLineItemId?: () => string;
   now?: () => Date;
 }>;
-
-const mutationNotImplementedMessage = 'This invoice API operation is not implemented yet.';
 
 const lifecycleKinds = new Set<InvoiceLifecycleKind>(['draft', 'finalized', 'voided']);
 const sortByValues = new Set<InvoiceListSortBy>([
@@ -476,6 +477,12 @@ type FinalizeInvoiceInput = Readonly<{
   finalizedAt?: UtcTimestampString;
 }>;
 
+type VoidInvoiceInput = Readonly<{
+  expectedVersion: InvoiceRecordVersion;
+  voidReason: VoidReason;
+  voidedAt?: UtcTimestampString;
+}>;
+
 const parseUpdateDraftInput = (
   event: ApiGatewayHttpEvent,
   generateLineItemId: () => string,
@@ -557,6 +564,15 @@ const allowedFinalizeFields = new Set([
   'ownerId',
   'totals',
 ]);
+const allowedVoidFields = new Set([
+  'expectedVersion',
+  'id',
+  'ownerId',
+  'payments',
+  'totals',
+  'voidedAt',
+  'voidReason',
+]);
 
 const parseDeleteDraftInput = (event: ApiGatewayHttpEvent): DraftDeleteInput | HttpResponse => {
   const body = parseJsonBody(event);
@@ -614,6 +630,42 @@ const parseFinalizeInvoiceInput = (
     expectedVersion: expectedVersion.value,
     invoiceNumber: invoiceNumber.value,
     ...(finalizedAt === undefined ? {} : { finalizedAt: finalizedAt.value }),
+  };
+};
+
+const parseVoidInvoiceInput = (event: ApiGatewayHttpEvent): VoidInvoiceInput | HttpResponse => {
+  const body = parseJsonBody(event);
+  if (isHttpResponse(body)) return body;
+  if (!isRecord(body)) return jsonError(400, 'bad_request', 'Request body must be an object.');
+
+  for (const key of Object.keys(body)) {
+    if (!allowedVoidFields.has(key)) {
+      return jsonError(400, 'bad_request', `${key} is not supported for invoice voiding.`);
+    }
+  }
+
+  if (typeof body.expectedVersion !== 'string') {
+    return jsonError(400, 'bad_request', 'expectedVersion is required.');
+  }
+  const expectedVersion = parseInvoiceRecordVersion(body.expectedVersion);
+  if (!expectedVersion.ok) return repositoryErrorResponse(expectedVersion.error);
+
+  if (typeof body.voidReason !== 'string') {
+    return jsonError(400, 'bad_request', 'voidReason is required.');
+  }
+  const voidReason = parseVoidReason(body.voidReason);
+  if (!voidReason.ok) return domainErrorResponse(voidReason.error);
+
+  if (body.voidedAt !== undefined && typeof body.voidedAt !== 'string') {
+    return jsonError(400, 'bad_request', 'voidedAt must be a string when provided.');
+  }
+  const voidedAt = body.voidedAt === undefined ? undefined : parseUtcTimestamp(body.voidedAt);
+  if (voidedAt !== undefined && !voidedAt.ok) return domainErrorResponse(voidedAt.error);
+
+  return {
+    expectedVersion: expectedVersion.value,
+    voidReason: voidReason.value,
+    ...(voidedAt === undefined ? {} : { voidedAt: voidedAt.value }),
   };
 };
 
@@ -874,7 +926,42 @@ export const createInvoiceApiHandler = ({
     if (method === 'POST' && /^\/invoices\/[^/]+\/void$/u.test(path)) {
       const owner = requireOwner(event);
       if (!owner.ok) return owner.response;
-      return jsonError(501, 'not_implemented', mutationNotImplementedMessage);
+
+      const rawId = pathInvoiceId(event);
+      const parsedId = rawId === undefined ? undefined : parseInvoiceId(rawId);
+      if (parsedId === undefined || !parsedId.ok) {
+        return jsonError(400, 'bad_request', 'Invoice id is invalid.');
+      }
+
+      const input = parseVoidInvoiceInput(event);
+      if (isHttpResponse(input)) return input;
+
+      const repository = repositoryFactory(owner.ownerId);
+      const existing = await repository.getById(parsedId.value);
+      if (!existing.ok) return repositoryErrorResponse(existing.error);
+
+      if (existing.value.invoice.kind !== 'finalized') {
+        return jsonError(409, 'invoice_conflict', 'Only finalized invoices can be voided.');
+      }
+
+      const voidedAt = input.voidedAt ?? parseTimestamp(now());
+      if (isHttpResponse(voidedAt)) return voidedAt;
+
+      const voided = voidInvoice(existing.value.invoice, {
+        voidedAt,
+        reason: input.voidReason,
+      });
+      if (!voided.ok) return domainErrorResponse(voided.error);
+
+      const result = await repository.saveVoided(voided.value, {
+        expectedVersion: input.expectedVersion,
+      });
+      if (!result.ok) return repositoryErrorResponse(result.error);
+
+      return jsonResponse(200, {
+        invoice: serializeInvoice(result.value.invoice),
+        version: result.value.version,
+      });
     }
 
     return jsonError(404, 'not_found', 'Route not found.');

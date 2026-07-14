@@ -1,6 +1,7 @@
 import {
   assertInvoiceId,
   assertInvoiceLineItemId,
+  assertInvoiceNumber,
   assertQuantity,
   parseMoneyFromDecimal,
   USD_CURRENCY_DEFINITION,
@@ -11,11 +12,13 @@ import {
   addDraftInvoiceLine,
   createDraftInvoice,
   createPartySnapshot,
+  finalizeInvoice,
   parseInvoiceLineDescription,
   parsePartyDisplayName,
   type DraftInvoice,
   type FinalizedInvoice,
   type Invoice,
+  type VoidedInvoice,
 } from '@invoice/invoice-domain';
 import type { InvoiceRepository, InvoiceRepositoryResult } from '@invoice/invoice-repository';
 import {
@@ -60,11 +63,6 @@ const draftInvoice = Object.freeze({
   taxRoundingStrategy: 'per_line',
   createdAt: '2026-01-01T00:00:00.000Z' as UtcTimestampString,
   updatedAt: '2026-01-01T00:00:00.000Z' as UtcTimestampString,
-}) as unknown as Invoice;
-
-const finalizedInvoice = Object.freeze({
-  ...draftInvoice,
-  kind: 'finalized',
 }) as unknown as Invoice;
 
 const party = (displayName: string) => {
@@ -116,6 +114,15 @@ const finalizableDraftInvoice = (() => {
   return withLine.value;
 })();
 
+const finalizedInvoice = (() => {
+  const finalized = finalizeInvoice(finalizableDraftInvoice, {
+    invoiceNumber: assertInvoiceNumber('INV-020'),
+    finalizedAt: '2026-01-02T03:04:05.000Z' as UtcTimestampString,
+  });
+  if (!finalized.ok) throw new Error('Expected finalized invoice fixture.');
+  return finalized.value;
+})();
+
 const okRepository = (overrides: Partial<InvoiceRepository> = {}): InvoiceRepository =>
   ({
     createDraft: vi.fn(async (invoice: DraftInvoice) => repoOk({ invoice, version: 'v-created' })),
@@ -123,7 +130,7 @@ const okRepository = (overrides: Partial<InvoiceRepository> = {}): InvoiceReposi
     saveFinalized: vi.fn(async (invoice: FinalizedInvoice) =>
       repoOk({ invoice, version: 'v-finalized' }),
     ),
-    saveVoided: vi.fn(),
+    saveVoided: vi.fn(async (invoice: VoidedInvoice) => repoOk({ invoice, version: 'v-voided' })),
     getById: vi.fn(async () => repoOk({ invoice: draftInvoice, version: 'v1' })),
     list: vi.fn(async () =>
       repoOk({
@@ -1422,24 +1429,258 @@ describe('invoice API routes', () => {
     expect(responseBody(response)).toMatchObject({ error: { code } });
   });
 
-  it('returns protected 501 JSON responses for the remaining void mutation stub', async () => {
-    const handler = createInvoiceApiHandler({ repositoryFactory: () => okRepository() });
+  it('voids authenticated finalized invoices using the path id and expected version', async () => {
+    const repository = okRepository({
+      getById: vi.fn(async () =>
+        repoOk({ invoice: finalizedInvoice, version: assertInvoiceRecordVersion('v2') }),
+      ),
+    });
+    const repositoryFactory = vi.fn(() => repository);
+    const handler = createInvoiceApiHandler({ repositoryFactory, ...deterministicOptions });
 
-    const response = await handler(event('POST', '/invoices/invoice_1/void'));
+    const response = await handler(
+      event('POST', '/invoices/invoice_1/void', {
+        body: JSON.stringify({
+          id: 'ignored_body_id',
+          ownerId: 'body-owner-ignored',
+          totals: { ignored: true },
+          payments: [{ ignored: true }],
+          expectedVersion: 'v2',
+          voidReason: 'Customer cancelled',
+          voidedAt: '2026-01-02T03:04:05.000Z',
+        }),
+      }),
+    );
 
-    expect(response.statusCode).toBe(501);
-    expect(responseBody(response)).toEqual({
-      error: {
-        code: 'not_implemented',
-        message: 'This invoice API operation is not implemented yet.',
+    expect(repositoryFactory).toHaveBeenCalledWith('owner-123');
+    expect(repository.getById).toHaveBeenCalledWith(assertInvoiceId('invoice_1'));
+    expect(repository.saveVoided).toHaveBeenCalledTimes(1);
+    expect(repository.saveVoided).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'voided',
+        finalized: finalizedInvoice,
+        voidedAt: '2026-01-02T03:04:05.000Z',
+        voidReason: 'Customer cancelled',
+      }),
+      { expectedVersion: assertInvoiceRecordVersion('v2') },
+    );
+    expect(response.statusCode).toBe(200);
+    expect(responseBody(response)).toMatchObject({
+      invoice: {
+        schemaVersion: 1,
+        kind: 'voided',
+        finalized: {
+          kind: 'finalized',
+          id: 'invoice_1',
+          invoiceNumber: 'INV-020',
+          totals: { grandTotal: { currency: 'USD', minorUnits: '1000' } },
+        },
+        voidedAt: '2026-01-02T03:04:05.000Z',
+        voidReason: 'Customer cancelled',
       },
+      version: 'v-voided',
     });
   });
 
-  it('requires an owner before returning remaining mutation stubs', async () => {
+  it('defaults voidedAt to the handler clock when voiding', async () => {
+    const repository = okRepository({
+      getById: vi.fn(async () =>
+        repoOk({ invoice: finalizedInvoice, version: assertInvoiceRecordVersion('v2') }),
+      ),
+    });
+    const handler = createInvoiceApiHandler({
+      repositoryFactory: () => repository,
+      ...deterministicOptions,
+    });
+
+    const response = await handler(
+      event('POST', '/invoices/invoice_1/void', {
+        body: JSON.stringify({ expectedVersion: 'v2', voidReason: 'Issued in error' }),
+      }),
+    );
+
+    expect(response.statusCode).toBe(200);
+    expect(repository.saveVoided).toHaveBeenCalledWith(
+      expect.objectContaining({ voidedAt: '2026-01-02T03:04:05.000Z' }),
+      { expectedVersion: assertInvoiceRecordVersion('v2') },
+    );
+  });
+
+  it('requires an owner for POST /invoices/{id}/void', async () => {
     const handler = createInvoiceApiHandler({ repositoryFactory: () => okRepository() });
     const response = await handler(unauthorizedEvent('POST', '/invoices/invoice_1/void'));
 
     expect(response.statusCode).toBe(401);
+  });
+
+  it.each([
+    ['malformed JSON', '{"expectedVersion":', 'bad_request'],
+    ['non-object body', JSON.stringify(['not', 'an', 'object']), 'bad_request'],
+    ['missing expectedVersion', JSON.stringify({ voidReason: 'Issued in error' }), 'bad_request'],
+    [
+      'invalid expectedVersion',
+      JSON.stringify({ expectedVersion: 'not valid', voidReason: 'Issued in error' }),
+      'invalid_invoice_record_version',
+    ],
+    ['missing voidReason', JSON.stringify({ expectedVersion: 'v2' }), 'bad_request'],
+    [
+      'invalid voidReason',
+      JSON.stringify({ expectedVersion: 'v2', voidReason: '' }),
+      'invalid_void_reason',
+    ],
+    [
+      'invalid voidedAt',
+      JSON.stringify({
+        expectedVersion: 'v2',
+        voidReason: 'Issued in error',
+        voidedAt: 'not-a-timestamp',
+      }),
+      'invalid_timestamp',
+    ],
+    [
+      'unsupported body field',
+      JSON.stringify({ expectedVersion: 'v2', voidReason: 'Issued in error', draft: {} }),
+      'bad_request',
+    ],
+  ])('maps %s void input to 400 before loading the invoice', async (_label, body, code) => {
+    const repository = okRepository();
+    const handler = createInvoiceApiHandler({ repositoryFactory: () => repository });
+
+    const response = await handler(event('POST', '/invoices/invoice_1/void', { body }));
+
+    expect(response.statusCode).toBe(400);
+    expect(responseBody(response)).toMatchObject({ error: { code } });
+    expect(repository.getById).not.toHaveBeenCalled();
+    expect(repository.saveVoided).not.toHaveBeenCalled();
+  });
+
+  it('maps invalid void invoice IDs to 400', async () => {
+    const repository = okRepository();
+    const handler = createInvoiceApiHandler({ repositoryFactory: () => repository });
+
+    const response = await handler(
+      event('POST', '/invoices/not valid/void', {
+        body: JSON.stringify({ expectedVersion: 'v2', voidReason: 'Issued in error' }),
+      }),
+    );
+
+    expect(response.statusCode).toBe(400);
+    expect(repository.getById).not.toHaveBeenCalled();
+    expect(repository.saveVoided).not.toHaveBeenCalled();
+  });
+
+  it('maps missing invoices to 404 for voiding', async () => {
+    const repository = okRepository({
+      getById: vi.fn(
+        async (): Promise<InvoiceRepositoryResult<never>> => repoErr(error('invoice_not_found')),
+      ),
+    });
+    const handler = createInvoiceApiHandler({ repositoryFactory: () => repository });
+
+    const response = await handler(
+      event('POST', '/invoices/invoice_1/void', {
+        body: JSON.stringify({ expectedVersion: 'v2', voidReason: 'Issued in error' }),
+      }),
+    );
+
+    expect(response.statusCode).toBe(404);
+    expect(repository.saveVoided).not.toHaveBeenCalled();
+  });
+
+  it('maps non-finalized invoices to 409 for voiding', async () => {
+    const repository = okRepository();
+    const handler = createInvoiceApiHandler({ repositoryFactory: () => repository });
+
+    const response = await handler(
+      event('POST', '/invoices/invoice_1/void', {
+        body: JSON.stringify({ expectedVersion: 'v1', voidReason: 'Issued in error' }),
+      }),
+    );
+
+    expect(response.statusCode).toBe(409);
+    expect(responseBody(response)).toEqual({
+      error: {
+        code: 'invoice_conflict',
+        message: 'Only finalized invoices can be voided.',
+      },
+    });
+    expect(repository.saveVoided).not.toHaveBeenCalled();
+  });
+
+  it('maps already voided invoices to 409 for voiding', async () => {
+    const repository = okRepository({
+      getById: vi.fn(async () =>
+        repoOk({
+          invoice: {
+            kind: 'voided',
+            finalized: finalizedInvoice,
+            voidedAt: '2026-01-02T03:04:05.000Z',
+            voidReason: 'Issued in error',
+          } as unknown as Invoice,
+          version: assertInvoiceRecordVersion('v3'),
+        }),
+      ),
+    });
+    const handler = createInvoiceApiHandler({ repositoryFactory: () => repository });
+
+    const response = await handler(
+      event('POST', '/invoices/invoice_1/void', {
+        body: JSON.stringify({ expectedVersion: 'v3', voidReason: 'Issued in error' }),
+      }),
+    );
+
+    expect(response.statusCode).toBe(409);
+    expect(repository.saveVoided).not.toHaveBeenCalled();
+  });
+
+  it('maps domain void validation errors to 400', async () => {
+    const repository = okRepository({
+      getById: vi.fn(async () =>
+        repoOk({ invoice: finalizedInvoice, version: assertInvoiceRecordVersion('v2') }),
+      ),
+    });
+    const handler = createInvoiceApiHandler({ repositoryFactory: () => repository });
+
+    const response = await handler(
+      event('POST', '/invoices/invoice_1/void', {
+        body: JSON.stringify({
+          expectedVersion: 'v2',
+          voidReason: 'Issued in error',
+          voidedAt: '2026-01-01T00:00:00.000Z',
+        }),
+      }),
+    );
+
+    expect(response.statusCode).toBe(400);
+    expect(responseBody(response)).toEqual({
+      error: {
+        code: 'invalid_state_transition',
+        message: 'Void timestamp must not precede finalized timestamp.',
+      },
+    });
+    expect(repository.saveVoided).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['stale expected versions', 'invoice_conflict', 409],
+    ['duplicate invoice numbers', 'invoice_number_conflict', 409],
+    ['repository unavailability', 'repository_unavailable', 503],
+  ] as const)('maps %s to HTTP responses for voiding', async (_label, code, statusCode) => {
+    const repository = okRepository({
+      getById: vi.fn(async () =>
+        repoOk({ invoice: finalizedInvoice, version: assertInvoiceRecordVersion('v2') }),
+      ),
+      saveVoided: vi.fn(async (): Promise<InvoiceRepositoryResult<never>> => repoErr(error(code))),
+    });
+    const handler = createInvoiceApiHandler({ repositoryFactory: () => repository });
+
+    const response = await handler(
+      event('POST', '/invoices/invoice_1/void', {
+        body: JSON.stringify({ expectedVersion: 'v2', voidReason: 'Issued in error' }),
+      }),
+    );
+
+    expect(response.statusCode).toBe(statusCode);
+    expect(responseBody(response)).toMatchObject({ error: { code } });
   });
 });
