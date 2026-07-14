@@ -2,8 +2,8 @@
 
 ## Status
 
-Implemented locally; ready for review after verification. No deployment or commit was performed by
-this task.
+Implemented and committed in Task 020. Dev finalization verification was retried and completed in
+Task 020B after Task 021B deployed finalizable draft fields.
 
 ## Objective
 
@@ -88,7 +88,13 @@ not accept client-provided totals or payments.
 
 ## Verification
 
-Final verification results are recorded in the Task 020 completion response.
+Task 020 local verification results are recorded in the Task 020 completion response.
+
+Task 020B verified the deployed dev finalization path after Task 021B made API-created drafts
+finalizable. Verification confirmed public health remained available, authenticated draft creation
+could prepare a finalizable draft, authenticated finalization returned a finalized invoice,
+get-by-id returned the finalized invoice, list endpoints included the finalized invoice, duplicate
+invoice-number finalization returned `409`, and the void route remained `501`.
 
 ## Proposed commit message
 
