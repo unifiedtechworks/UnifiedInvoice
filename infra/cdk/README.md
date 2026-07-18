@@ -96,9 +96,9 @@ Task 015 adds these JWT-protected HTTP API routes:
 
 `GET /invoices` and `GET /invoices/{id}` are wired to the DynamoDB repository adapter using the
 owner ID resolved from JWT `sub`, with `username` used only as a fallback when `sub` is absent.
-Mutation routes are protected but return stable `501 Not Implemented` JSON stubs until mutation
-behavior is implemented in a later task. No web app integration, login flow, invoice-number
-sequencing service, users, passwords, hosted UI/domain, VPC/NAT, app S3 bucket, custom domain,
+The mutation routes now implement draft create/update/delete, finalization, and voiding through the
+same owner-scoped repository boundary. No web app integration, login flow, invoice-number sequencing
+service, additional users, passwords, hosted UI/domain, VPC/NAT, app S3 bucket, custom domain,
 budget, secret, or production deployment is included.
 
 ## Dev deployment
