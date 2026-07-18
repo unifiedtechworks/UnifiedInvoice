@@ -620,58 +620,26 @@ export const createDynamoDbInvoiceRepository = (
       if (!validated.ok) return validated;
       try {
         await options.client.send(
-          new TransactWriteCommand({
-            TransactItems: [
-              {
-                ConditionCheck: {
-                  TableName: tableName,
-                  Key: reservationKey(invoiceNumber),
-                  ConditionExpression: '#invoiceId = :invoiceId',
-                  ExpressionAttributeNames: { '#invoiceId': 'invoiceId' },
-                  ExpressionAttributeValues: { ':invoiceId': String(id) },
-                },
-              },
-              {
-                Put: {
-                  TableName: tableName,
-                  Item: toInvoiceItem(record),
-                  ConditionExpression:
-                    '#record.#version = :expectedVersion AND #record.#kind = :expectedKind',
-                  ExpressionAttributeNames: {
-                    '#record': 'record',
-                    '#version': 'version',
-                    '#kind': 'kind',
-                  },
-                  ExpressionAttributeValues: {
-                    ':expectedVersion': saveOptions.expectedVersion,
-                    ':expectedKind': 'finalized',
-                  },
-                },
-              },
-            ],
+          new PutCommand({
+            TableName: tableName,
+            Item: toInvoiceItem(record),
+            ConditionExpression:
+              '#record.#version = :expectedVersion AND #record.#kind = :expectedKind',
+            ExpressionAttributeNames: {
+              '#record': 'record',
+              '#version': 'version',
+              '#kind': 'kind',
+            },
+            ExpressionAttributeValues: {
+              ':expectedVersion': saveOptions.expectedVersion,
+              ':expectedKind': 'finalized',
+            },
           }),
         );
         return validated;
       } catch (error) {
-        if (isNamedError(error, 'TransactionCanceledException')) {
-          const currentReservation = await readReservation(invoiceNumber);
-          if (!currentReservation.ok) return currentReservation;
-          if (currentReservation.value === undefined)
-            return invariantViolation(
-              'Finalized invoice number must remain reserved while voiding.',
-              'invoiceNumber',
-            );
-          if (currentReservation.value.invoiceId !== String(id))
-            return invoiceNumberConflict(invoiceNumber);
-          const currentInvoice = await readInvoice(id);
-          if (!currentInvoice.ok) return currentInvoice;
-          if (
-            currentInvoice.value.version !== saveOptions.expectedVersion ||
-            currentInvoice.value.record.kind !== 'finalized'
-          )
-            return invoiceConflict('Invoice record version conflict.');
-          return repositoryUnavailable(error);
-        }
+        if (isNamedError(error, 'ConditionalCheckFailedException'))
+          return invoiceConflict('Invoice record version conflict.');
         return repositoryUnavailable(error);
       }
     },

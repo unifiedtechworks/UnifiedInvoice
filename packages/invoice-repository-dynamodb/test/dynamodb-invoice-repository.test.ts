@@ -260,6 +260,34 @@ describe('DynamoDB invoice repository finalized and voided behavior', () => {
     ).resolves.toMatchObject({ ok: false, error: { code: 'invoice_conflict' } });
   });
 
+  it('keeps invoice numbers reserved after voiding', async () => {
+    const { repository, fake } = repositoryFixture();
+    const firstDraft = finalizableDraft('invoice-1');
+    const secondDraft = finalizableDraft('invoice-2');
+    const firstCreated = must(await repository.createDraft(firstDraft));
+    const firstFinalized = finalizedInvoice('invoice-1', 'INV-SHARED');
+    const firstFinalizedSaved = must(
+      await repository.saveFinalized(firstFinalized, { expectedVersion: firstCreated.version }),
+    );
+    must(
+      await repository.saveVoided(voidedInvoice(firstFinalized), {
+        expectedVersion: firstFinalizedSaved.version,
+      }),
+    );
+
+    const secondCreated = must(await repository.createDraft(secondDraft));
+
+    expect(fake.getItem('OWNER#owner-a', 'INVOICE_NUMBER#INV-SHARED')).toMatchObject({
+      invoiceId: 'invoice-1',
+      invoiceNumber: 'INV-SHARED',
+    });
+    await expect(
+      repository.saveFinalized(finalizedInvoice('invoice-2', 'INV-SHARED'), {
+        expectedVersion: secondCreated.version,
+      }),
+    ).resolves.toMatchObject({ ok: false, error: { code: 'invoice_number_conflict' } });
+  });
+
   it('voids the finalized aggregate returned by getById with the current version', async () => {
     const { repository, fake } = repositoryFixture();
     const draft = finalizableDraft();
@@ -378,6 +406,34 @@ describe('DynamoDB invoice repository validation and AWS errors', () => {
     ).resolves.toMatchObject({
       ok: false,
       error: { code: 'repository_unavailable', detail: 'TransactionCanceledException' },
+    });
+  });
+
+  it('maps unknown void PutCommand failures to repository_unavailable', async () => {
+    const { repository, fake } = repositoryFixture();
+    const draft = finalizableDraft();
+    const created = must(await repository.createDraft(draft));
+    const finalized = finalizedInvoice();
+    const saved = must(
+      await repository.saveFinalized(finalized, { expectedVersion: created.version }),
+    );
+    fake.failNextCommand(
+      'PutCommand',
+      Object.assign(new Error('write unavailable'), { name: 'InternalServerError' }),
+    );
+
+    await expect(
+      repository.saveVoided(voidedInvoice(finalized), { expectedVersion: saved.version }),
+    ).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'repository_unavailable', detail: 'InternalServerError' },
+    });
+    expect(fake.getItem('OWNER#owner-a', 'INVOICE#invoice-1')).toMatchObject({
+      kind: 'finalized',
+      version: saved.version,
+    });
+    expect(fake.getItem('OWNER#owner-a', 'INVOICE_NUMBER#INV-1001')).toMatchObject({
+      invoiceId: 'invoice-1',
     });
   });
 });

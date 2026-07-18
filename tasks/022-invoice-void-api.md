@@ -89,6 +89,17 @@ attributes. The fix keeps snapshot validation intact but canonicalizes serialize
 stable key ordering before comparison. No deployment was performed in Task 022C; the next deployment
 verification task should retry Task 022B against the fixed Lambda asset.
 
+## Task 022D follow-up
+
+Task 022B retry verification deployed the Task 022C Lambda asset, then found live void persistence
+returned `503 repository_unavailable`. Task 022D traced this to the DynamoDB adapter's void write
+using a two-item transaction even though the invoice-number reservation is only validated and not
+modified during void. The source fix keeps the consistent reservation read/validation, preserves the
+reservation item unchanged, and writes the voided invoice with a conditional invoice `PutCommand`
+requiring the current expected version and finalized lifecycle state. No deployment was performed in
+Task 022D; the next task should rerun Task 022B verification after this source fix is reviewed,
+committed, and deployed.
+
 ## Proposed commit message
 
 ```text
