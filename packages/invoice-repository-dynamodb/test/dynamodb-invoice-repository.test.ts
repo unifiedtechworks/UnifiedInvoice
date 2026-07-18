@@ -27,6 +27,16 @@ const must = <T>(result: Readonly<{ ok: true; value: T }> | Readonly<{ ok: false
   return result.value;
 };
 
+const reverseObjectKeys = (value: unknown): unknown => {
+  if (Array.isArray(value)) return value.map(reverseObjectKeys);
+  if (typeof value !== 'object' || value === null) return value;
+  return Object.fromEntries(
+    Object.entries(value)
+      .reverse()
+      .map(([key, nested]) => [key, reverseObjectKeys(nested)]),
+  );
+};
+
 const seedListRecords = async (repository: ReturnType<typeof repositoryFixture>['repository']) => {
   await repository.createDraft(draftInvoice('list-draft'));
 
@@ -248,6 +258,42 @@ describe('DynamoDB invoice repository finalized and voided behavior', () => {
     await expect(
       repository.saveFinalized(finalized, { expectedVersion: voidedSaved.version }),
     ).resolves.toMatchObject({ ok: false, error: { code: 'invoice_conflict' } });
+  });
+
+  it('voids the finalized aggregate returned by getById with the current version', async () => {
+    const { repository, fake } = repositoryFixture();
+    const draft = finalizableDraft();
+    const created = must(await repository.createDraft(draft));
+    const finalizedSaved = must(
+      await repository.saveFinalized(finalizedInvoice(), { expectedVersion: created.version }),
+    );
+    const stored = fake.getItem('OWNER#owner-a', 'INVOICE#invoice-1');
+    if (stored === undefined) throw new Error('Expected stored finalized invoice.');
+    fake.setItem({
+      ...stored,
+      record: {
+        ...(stored.record as object),
+        invoice: reverseObjectKeys((stored.record as { invoice: unknown }).invoice),
+      },
+    });
+    const loadedFinalized = must(await repository.getById(draft.id));
+    if (loadedFinalized.invoice.kind !== 'finalized')
+      throw new Error('Expected finalized invoice.');
+
+    const voided = voidedInvoice(loadedFinalized.invoice);
+    const voidedSaved = must(
+      await repository.saveVoided(voided, { expectedVersion: loadedFinalized.version }),
+    );
+
+    expect(loadedFinalized.version).toBe(finalizedSaved.version);
+    expect(voidedSaved).toMatchObject({ invoice: voided, version: 'v3' });
+    await expect(repository.getById(draft.id)).resolves.toMatchObject({
+      ok: true,
+      value: { invoice: { kind: 'voided' }, version: 'v3' },
+    });
+    expect(fake.getItem('OWNER#owner-a', 'INVOICE_NUMBER#INV-1001')).toMatchObject({
+      invoiceId: 'invoice-1',
+    });
   });
 
   it('rejects missing, stale, and draft void transitions', async () => {

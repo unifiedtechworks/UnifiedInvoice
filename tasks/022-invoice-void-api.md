@@ -80,6 +80,15 @@ deployment approval is given.
 
 Final verification results are recorded in the Task 022 completion response.
 
+## Task 022C follow-up
+
+Task 022B dev verification found that deployed voiding returned `409 invoice_conflict` after a
+successful finalize and `GET /invoices/{id}` current-version read. Task 022C traced this to the
+DynamoDB adapter's finalized snapshot comparison using order-sensitive JSON text for DynamoDB map
+attributes. The fix keeps snapshot validation intact but canonicalizes serialized invoice maps with
+stable key ordering before comparison. No deployment was performed in Task 022C; the next deployment
+verification task should retry Task 022B against the fixed Lambda asset.
+
 ## Proposed commit message
 
 ```text
