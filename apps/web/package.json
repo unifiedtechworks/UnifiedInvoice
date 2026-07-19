@@ -7,9 +7,11 @@
     "dev": "vite",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
+    "test": "vitest run --root ../.. apps/web/test",
     "build": "tsc --noEmit && vite build"
   },
   "dependencies": {
+    "@invoice/api-client": "workspace:*",
     "@invoice/domain": "workspace:*",
     "@invoice/ui": "workspace:*",
     "@vitejs/plugin-react": "latest",

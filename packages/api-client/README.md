@@ -42,3 +42,7 @@ response body data. Non-JSON error bodies are handled without throwing parser er
 for invoice routes throw `InvoiceApiAuthError` before any fetch call.
 
 Next task work should wire web auth and client usage. Backend routes and behavior remain unchanged.
+
+Task 026 wires this package into `@invoice/web` through a small Vite/Cognito auth foundation. The
+web app owns environment configuration and session state; this package remains framework-neutral and
+continues to receive only a base URL and token provider.

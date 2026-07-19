@@ -5,7 +5,10 @@ This repository is a TypeScript monorepo for an invoice-management platform.
 ## Current milestone boundaries
 
 - `apps/mobile` contains a bare React Native app with Android as the only native verification target.
-- `apps/web` contains a React Native for Web app built with Vite.
+- `apps/web` contains a React Native for Web app built with Vite. It now has a minimal
+  environment-driven Cognito dev sign-in foundation, in-memory browser session handling, and
+  `@invoice/api-client` wiring for public health and authenticated invoice-list smoke checks. It
+  does not yet implement the full invoice dashboard or invoice workflows.
 - `apps/api` contains the TypeScript Lambda application scaffold. It keeps `GET /health` public,
   adds authenticated invoice route handling for the serverless API, implements `GET /invoices`,
   `GET /invoices/{id}`, authenticated draft create/update/delete routes with minimal
