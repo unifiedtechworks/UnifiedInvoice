@@ -23,7 +23,10 @@ This repository is a TypeScript monorepo for an invoice-management platform.
   list/query behavior without a table-wide scan. API composition, infrastructure resources,
   authentication, and deployment remain separate later-task concerns.
 - `packages/validation` is reserved for shared validation primitives.
-- `packages/api-client` is reserved for a future client abstraction and contains no backend implementation.
+- `packages/api-client` contains the typed frontend-facing HTTP client for the current API route
+  surface. It accepts an injected API base URL, token provider, and optional `fetch`
+  implementation; keeps `/health` public; attaches bearer auth only for invoice routes; normalizes
+  API errors; and is tested with fake fetches only, without live AWS calls.
 - `packages/ui` contains React Native primitive-based UI that can be consumed by Android and web.
 - `infra/cdk` contains the active AWS CDK infrastructure scaffold for the public `GET /health` HTTP
   API, authenticated invoice API routes, Lambda, environment-scoped DynamoDB invoice table, and
