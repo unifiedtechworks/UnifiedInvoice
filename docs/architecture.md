@@ -34,5 +34,10 @@ This repository is a TypeScript monorepo for an invoice-management platform.
   password, hosted UI domain, S3 app bucket, VPC, NAT, custom domain, budget, secret, or
   account-specific deployment configuration. Task 012A superseded and removed the Task 010 SAM
   scaffold; deployment remains explicit and manual.
+- `tools/dev-cleanup` contains a local/admin-only dev DynamoDB cleanup utility. It is a workspace
+  CLI package, not a Lambda, API route, scheduled job, or deployed component. It is restricted to
+  the dev environment, requires one trusted owner ID, defaults to dry-run, refuses
+  production-looking table names, and queries one owner partition for invoice records plus
+  invoice-number reservations before any explicitly confirmed delete.
 
 Business logic must remain independent of React Native and AWS. Financial calculations must not use floating-point currency values. Invoice document lifecycle is separate from settlement, delivery, persistence, APIs, UI, PDF, email, and AWS concerns.

@@ -114,8 +114,7 @@ invoice records and invoice-number reservation records whose lifecycle relations
 deletes can leave orphaned reservations, permit accidental number reuse, or remove evidence needed
 to diagnose API behavior.
 
-Recommended future direction: make dev cleanup a separate Task 024 and implement a dev-only cleanup
-command or script, not a public API route.
+Task 024 implements dev cleanup as a local/admin-only workspace command, not a public API route.
 
 The cleanup tool should:
 

@@ -2,6 +2,7 @@ packages:
   - 'apps/*'
   - 'infra/*'
   - 'packages/*'
+  - 'tools/*'
 allowBuilds:
   esbuild: true
 minimumReleaseAgeExclude:

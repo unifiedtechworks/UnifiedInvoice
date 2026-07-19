@@ -145,6 +145,11 @@ Destroy is intentionally a manual operation and was not run during Task 012B:
 pnpm --filter @invoice/infra-cdk exec cdk destroy -c environment=dev
 ```
 
+Task 024 added a separate local/admin-only `@invoice/dev-cleanup` workspace utility for dev data
+inspection and future reviewed cleanup operations. It is not deployed by CDK and adds no Lambda, API
+route, schedule, IAM role, VPC/NAT, S3 bucket, custom domain, budget, secret, or production
+configuration.
+
 Task 013B verification confirmed `unified-invoice-dev-invoices` is `ACTIVE`, uses on-demand
 `PAY_PER_REQUEST` billing, and has string keys `PK` and `SK`. Lambda verification confirmed
 `APP_ENV=dev`, `INVOICES_TABLE_NAME=unified-invoice-dev-invoices`, timeout `5`, and memory `128`.
